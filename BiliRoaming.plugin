@@ -26,9 +26,9 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 
 [Argument]
 # 番剧区域限制: 解除 / 关闭
-area : unlock|off
+area = unlock|off
 # 链接净化: 不处理 / AV号链接 / BV号链接
-mode : short|av|bv
+mode = short|av|bv
 
 [Script]
 # 番剧详情接口
