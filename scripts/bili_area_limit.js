@@ -14,14 +14,22 @@
  *   - allow_dm: 0 → 1        允许弹幕
  *   - allow_download: 0 → 1  允许下载
  * 
+ * 参数 (argument):
+ *   area=unlock  解除区域限制（默认）
+ *   area=off     不处理，直接放行
+ * 
  * 适用于: Loon, Surge, Quantumult X
- * Update: 2024
+ * Update: 2026
  */
+
+// === 解析参数 ===
+const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '');
+const AREA = args.area || 'unlock'; // unlock | off
 
 const url = $request.url;
 const body = $response.body;
 
-if (!body) {
+if (!body || AREA === 'off') {
     $done({});
     return;
 }
@@ -189,4 +197,19 @@ function fixAreaLimit(obj) {
     if (obj.area === 'restricted' || obj.area === '') {
         obj.area = 'cn';
     }
+}
+
+/**
+ * 解析参数字符串: "area=off" → { area: "off" }
+ */
+function parseArgs(str) {
+    const result = {};
+    if (!str || typeof str !== 'string') return result;
+    str.split('&').forEach(pair => {
+        const idx = pair.indexOf('=');
+        if (idx > 0) {
+            result[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+        }
+    });
+    return result;
 }
