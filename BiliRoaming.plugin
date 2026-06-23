@@ -24,24 +24,30 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 
 [Host]
 
+[Argument]
+# 番剧区域限制: 解除 / 关闭
+area : unlock|off
+# 链接净化: 不处理 / AV号链接 / BV号链接
+mode : short|av|bv
+
 [Script]
 # 番剧详情接口
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/view\/v\d\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=AreaUnlock
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/view\/v\d\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=AreaUnlock, argument=area={area}
 
 # PGC 播放地址接口
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/player\/api\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=PlayURL
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/player\/api\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=PlayURL, argument=area={area}
 
 # TV 播放地址接口
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/tv\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=TVPlayURL
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/tv\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=TVPlayURL, argument=area={area}
 
 # 国际版播放地址接口
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\/ogv\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=IntlPlayURL
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\/ogv\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=IntlPlayURL, argument=area={area}
 
 # 搜索接口
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=Search
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=Search, argument=area={area}
 
 # URL 展开
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_long_link.js, requires-body=true, tag=URLClean
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_long_link.js, requires-body=true, tag=URLClean, argument=mode={mode}
 
 [MITM]
 hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net
