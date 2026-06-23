@@ -16,7 +16,7 @@
  */
 
 // === 解析参数 ===
-const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '');
+const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '', 'mode');
 const MODE = args.mode || 'short'; // short | av | bv
 
 const method = $request.method;
@@ -160,9 +160,14 @@ function resolveRedirect(shortPath, callback) {
 /**
  * 解析参数字符串: "mode=av" → { mode: "av" }
  */
-function parseArgs(str) {
+function parseArgs(str, defaultKey) {
     const result = {};
     if (!str || typeof str !== 'string') return result;
+    // 无 '=' 时视为 defaultKey 的裸值
+    if (!str.includes('=') && defaultKey) {
+        result[defaultKey] = str.trim();
+        return result;
+    }
     str.split('&').forEach(pair => {
         const idx = pair.indexOf('=');
         if (idx > 0) {

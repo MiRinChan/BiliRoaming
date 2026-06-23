@@ -23,7 +23,7 @@
  */
 
 // === 解析参数 ===
-const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '');
+const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '', 'area');
 const AREA = args.area || 'unlock'; // unlock | off
 
 const url = $request.url;
@@ -202,9 +202,14 @@ function fixAreaLimit(obj) {
 /**
  * 解析参数字符串: "area=off" → { area: "off" }
  */
-function parseArgs(str) {
+function parseArgs(str, defaultKey) {
     const result = {};
     if (!str || typeof str !== 'string') return result;
+    // 无 '=' 时视为 defaultKey 的裸值
+    if (!str.includes('=') && defaultKey) {
+        result[defaultKey] = str.trim();
+        return result;
+    }
     str.split('&').forEach(pair => {
         const idx = pair.indexOf('=');
         if (idx > 0) {
