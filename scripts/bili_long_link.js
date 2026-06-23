@@ -23,6 +23,14 @@ if (!body || method !== 'POST') {
     return;
 }
 
+// 解析请求体，用于随机短码兜底构造长链
+let reqBody = {};
+try {
+    if ($request.body) {
+        reqBody = JSON.parse($request.body);
+    }
+} catch (_) {}
+
 try {
     let obj = JSON.parse(body);
 
@@ -39,7 +47,7 @@ try {
 
     if (match) {
         const shortPath = match[1];
-        let longUrl = resolveShortUrl(shortPath);
+        let longUrl = resolveShortUrl(shortPath, reqBody);
 
         if (longUrl) {
             // 替换内容中的短链接
@@ -61,8 +69,8 @@ try {
 /**
  * 从短链接路径解析出完整长链接
  */
-function resolveShortUrl(shortPath) {
-    // 清理可能的多余字符
+function resolveShortUrl(shortPath, reqBody) {
+    // 清理可能的多余字符（空格、问号后的参数等）
     shortPath = shortPath.replace(/[\s\?].*$/, '');
 
     // b23.tv/BV1GJ411x7h7 → https://www.bilibili.com/video/BV1GJ411x7h7
@@ -89,7 +97,21 @@ function resolveShortUrl(shortPath) {
         return `https://www.bilibili.com/bangumi/play/${epMatch[1]}`;
     }
 
-    // 随机短链：无法直接从路径提取，返回 null
-    // 此类短链需要解析请求参数来拼接
+    // === 随机短码兜底：从请求参数构造长链 ===
+    // x/share/click 请求体包含 oid（对象ID）和 type（类型）
+    // type: 1=番剧, 2=视频, 3=音频, 4=相簿, etc.
+    const oid = reqBody?.oid;
+    if (oid) {
+        const type = reqBody?.type;
+        // 番剧
+        if (type === 1) {
+            return `https://www.bilibili.com/bangumi/play/ss${oid}`;
+        }
+        // 视频（纯数字视为 av 号）
+        if (String(oid).match(/^\d+$/)) {
+            return `https://www.bilibili.com/video/av${oid}`;
+        }
+    }
+
     return null;
 }
