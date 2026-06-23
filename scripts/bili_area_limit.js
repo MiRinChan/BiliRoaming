@@ -15,21 +15,25 @@
  *   - allow_download: 0 → 1  允许下载
  * 
  * 参数 (argument):
- *   area=unlock  解除区域限制（默认）
- *   area=off     不处理，直接放行
+ *   area=true   解除区域限制
+ *   area=false  不处理（默认关闭）
  * 
  * 适用于: Loon, Surge, Quantumult X
  * Update: 2026
  */
 
 // === 解析参数 ===
-// Loon: $argument 是对象 { area: "unlock" }；Surge: $argument 是字符串 "area=unlock"
-const AREA = readArg('area', 'unlock'); // unlock | off
+// Loon switch: $argument.area 为 boolean；Surge: $argument 为字符串 "true"/"false"/"unlock"
+const areaRaw = readArg('area', false);
+if (areaRaw !== false && areaRaw !== true && areaRaw !== 'true' && areaRaw !== 'unlock') {
+    console.log(`BiliRoaming area_limit invalid arg: ${areaRaw}`);
+}
+const ENABLED = areaRaw === true || areaRaw === 'true' || areaRaw === 'unlock';
 
 const url = $request.url;
 const body = $response.body;
 
-if (!body || AREA === 'off') {
+if (!body || !ENABLED) {
     $done({});
     return;
 }
@@ -203,7 +207,7 @@ function fixAreaLimit(obj) {
  * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
  */
 function readArg(key, def) {
-    if (typeof $argument === 'object' && $argument) return $argument[key] || def;
+    if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
     if (typeof $argument === 'string') {
         const m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];

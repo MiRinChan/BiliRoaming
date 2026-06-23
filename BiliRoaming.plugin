@@ -25,7 +25,7 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 [Host]
 
 [Argument]
-area = select,"unlock","off",tag=番剧区域限制,desc=解除B站番剧区域限制
+area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
 
 [Script]

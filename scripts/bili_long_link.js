@@ -18,6 +18,11 @@
 // === 解析参数 ===
 // Loon: $argument 是对象 { mode: "av" }；Surge: $argument 是字符串 "mode=av"
 const MODE = readArg('mode', 'short'); // short | av | bv
+if (!['short', 'av', 'bv'].includes(MODE)) {
+    console.log(`BiliRoaming long_link invalid arg: ${MODE}`);
+    $done({});
+    return;
+}
 
 const method = $request.method;
 const body = $response.body;
@@ -134,26 +139,41 @@ function extractBvUrl(shortPath) {
  */
 function resolveRedirect(shortPath, callback) {
     const url = `https://b23.tv/${shortPath}`;
+    let settled = false;
+
+    // 3 秒超时兜底，防止请求挂起导致响应阻塞
+    const timeout = setTimeout(() => {
+        if (!settled) { settled = true; callback(null); }
+    }, 3000);
+
+    const done = (result) => {
+        if (!settled) { settled = true; clearTimeout(timeout); callback(result); }
+    };
 
     if (typeof $httpClient !== 'undefined') {
         $httpClient.head({ url, opts: { redirection: false } }, (error, response) => {
             if (!error && response) {
                 const loc = (response.headers && (response.headers.Location || response.headers.location))
                     || (response.status === 302 && response.url && response.url !== url && response.url);
-                if (loc) return callback(loc);
+                if (loc) return done(loc);
             }
-            callback(null);
+            done(null);
         });
     } else if (typeof $task !== 'undefined') {
+        const taskTimeout = setTimeout(() => done(null), 3000);
         $task.fetch({ url, method: 'HEAD' }).then(
             response => {
+                clearTimeout(taskTimeout);
                 const loc = response.headers?.Location || response.headers?.location;
-                callback(loc || null);
+                done(loc || null);
             },
-            () => callback(null)
+            () => {
+                clearTimeout(taskTimeout);
+                done(null);
+            }
         );
     } else {
-        callback(null);
+        done(null);
     }
 }
 
@@ -161,7 +181,7 @@ function resolveRedirect(shortPath, callback) {
  * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
  */
 function readArg(key, def) {
-    if (typeof $argument === 'object' && $argument) return $argument[key] || def;
+    if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
     if (typeof $argument === 'string') {
         const m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];
