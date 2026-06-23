@@ -29,7 +29,7 @@ try {
     if ($request.body) {
         reqBody = JSON.parse($request.body);
     }
-} catch (_) {}
+} catch (_) { }
 
 try {
     let obj = JSON.parse(body);
