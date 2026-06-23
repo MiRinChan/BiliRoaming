@@ -23,8 +23,8 @@
  */
 
 // === 解析参数 ===
-const args = parseArgs(typeof $argument !== 'undefined' ? $argument : '', 'area');
-const AREA = args.area || 'unlock'; // unlock | off
+// Loon: $argument 是对象 { area: "unlock" }；Surge: $argument 是字符串 "area=unlock"
+const AREA = readArg('area', 'unlock'); // unlock | off
 
 const url = $request.url;
 const body = $response.body;
@@ -200,21 +200,13 @@ function fixAreaLimit(obj) {
 }
 
 /**
- * 解析参数字符串: "area=off" → { area: "off" }
+ * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
  */
-function parseArgs(str, defaultKey) {
-    const result = {};
-    if (!str || typeof str !== 'string') return result;
-    // 无 '=' 时视为 defaultKey 的裸值
-    if (!str.includes('=') && defaultKey) {
-        result[defaultKey] = str.trim();
-        return result;
+function readArg(key, def) {
+    if (typeof $argument === 'object' && $argument) return $argument[key] || def;
+    if (typeof $argument === 'string') {
+        const m = $argument.match(new RegExp(key + '=([^&]*)'));
+        if (m) return m[1];
     }
-    str.split('&').forEach(pair => {
-        const idx = pair.indexOf('=');
-        if (idx > 0) {
-            result[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
-        }
-    });
-    return result;
+    return def;
 }
