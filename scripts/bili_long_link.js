@@ -15,19 +15,20 @@
  * Update: 2024
  */
 
-const url = $request.url;
 const method = $request.method;
 const body = $response.body;
 
 if (!body || method !== 'POST') {
     $done({});
+    return;
 }
 
 try {
     let obj = JSON.parse(body);
-    
+
     if (obj.code !== 0 || !obj.data || !obj.data.content) {
         $done({});
+        return;
     }
 
     const content = obj.data.content;

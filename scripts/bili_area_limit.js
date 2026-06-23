@@ -23,6 +23,7 @@ const body = $response.body;
 
 if (!body) {
     $done({});
+    return;
 }
 
 try {
@@ -39,7 +40,7 @@ try {
     }
 
     // 搜索接口：移除搜索结果中的区域限制标记
-    if (url.includes('/x/v2/search')) {
+    if (url.includes('/x/v') && url.includes('/search')) {
         obj = fixSearchData(obj);
     }
 
@@ -99,17 +100,18 @@ function fixSeasonData(obj) {
  * 修复播放地址数据
  */
 function fixPlayurlData(obj) {
-    if (!obj || obj.code !== 0) return obj;
-
-    const data = obj.data || obj.result;
-    if (!data) return obj;
+    if (!obj) return obj;
 
     // 如果 code 为 -404 (区域限制失败)，尝试恢复
     if (obj.code === -404) {
-        // 标记为已处理，让客户端尝试备用线路
         obj.code = 0;
         obj.message = '0';
     }
+
+    if (obj.code !== 0) return obj;
+
+    const data = obj.data || obj.result;
+    if (!data) return obj;
 
     fixAreaLimit(data);
 
