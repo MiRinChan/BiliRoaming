@@ -54,9 +54,11 @@ try {
 // /x/v2/space — unified v2 space API (iOS/Android 新版)
 // /x/space? — old Xposed hook point
 // /x/space/acc/info — user profile info (旧版)
+// /x/v2/space/archive — 视频列表 (新版，正常返回但需 area_limit fix)
 const isV2Space = url.includes('/v2/space') || url.includes('/x/space?');
 const isAccInfo = url.includes('/space/acc/info');
 const isArcSearch = url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search');
+const isSpaceArchive = url.includes('/v2/space/archive') || url.includes('/space/wbi/arc/search');
 const isFeed = url.includes('/community-service') && url.includes('/user/feed');
 
 // 用户信息 (any variant: v2, old acc/info, Xposed hook point)
@@ -68,7 +70,7 @@ if (isV2Space || isAccInfo) {
 }
 
 // 用户视频列表
-if (isArcSearch) {
+if (isArcSearch || isSpaceArchive) {
     obj = fixSpaceArc(obj);
 }
 
@@ -198,184 +200,148 @@ function fixAccInfo(obj, url, done) {
 
 /**
  * 从 getCardByMid 响应构建空间数据
- * 参照 Xposed BiliRoaming BiliRoamingApi.getSpace() 的完整返回格式
+ * 逐字段对齐 Xposed BiliRoamingApi.getSpace() 的返回格式
  * @param {string} mid - 用户 mid
- * @param {object} card - getCardByMid 返回的 card 对象
+ * @param {object|null} card - getCardByMid 返回的 card 对象（可为 null）
  * @param {boolean} isV2 - 是否为 /x/v2/space API
  */
 function buildFakeAccInfo(mid, card, isV2) {
     card = card || {};
     const levelInfo = card.level_info || {};
-    const officialVerify = card.official_verify || {};
-    const vipInfo = card.vip || {};
-    const face = card.face || '';
-
-    const data = {
-        // Xposed getSpace() 顶层字段
-        relation: -999,
-        guest_relation: -999,
-        default_tab: 'video',
-        is_params: true,
-        setting: {
-            fav_video: 0,
-            coins_video: 0,
-            likes_video: 0,
-            bangumi: 0,
-            played_game: 0,
-            groups: 0,
-            comic: 0,
-            bbq: 0,
-            dress_up: 0,
-            disable_following: 0,
-            live_playback: 1,
-            close_space_medal: 0,
-            only_show_wearing: 0
-        },
-        tab: {
-            archive: true,
-            article: true,
-            clip: true,
-            album: true,
-            favorite: false,
-            bangumi: false,
-            coin: false,
-            like: false,
-            community: false,
-            dynamic: true,
-            audios: true,
-            shop: false,
-            mall: false,
-            ugc_season: false,
-            comic: false,
-            cheese: false,
-            sub_comic: false,
-            activity: false,
-            series: false
-        },
-        card: {
-            mid: String(mid),
-            name: card.name || '',
-            approve: false,
-            sex: card.sex || '保密',
-            rank: card.rank || '0',
-            face: face,
-            DisplayRank: '0',
-            regtime: 0,
-            spacesta: 0,
-            birthday: '',
-            place: '',
-            description: '',
-            article: 0,
-            attentions: [],
-            fans: card.fans || 0,
-            friend: card.friend || 0,
-            attention: card.attention || 0,
-            sign: card.sign || '',
-            level_info: {
-                current_level: levelInfo.current_level || 0,
-                current_min: levelInfo.current_min || 0,
-                current_exp: levelInfo.current_exp || 0,
-                next_exp: levelInfo.next_exp || 0
-            },
-            pendant: {
-                pid: 0,
-                name: '',
-                image: '',
-                expire: 0,
-                image_enhance: '',
-                image_enhance_frame: ''
-            },
-            nameplate: {
-                nid: 0,
-                name: '',
-                image: '',
-                image_small: '',
-                level: '',
-                condition: ''
-            },
-            official_verify: {
-                type: officialVerify.type || -1,
-                desc: officialVerify.desc || ''
-            },
-            vip: {
-                vipType: vipInfo.vipType || 0,
-                vipDueDate: vipInfo.vipDueDate || 0,
-                dueRemark: '',
-                accessStatus: 0,
-                vipStatus: vipInfo.vipStatus || 0,
-                vipStatusWarn: '',
-                themeType: 0,
-                label: {
-                    path: '',
-                    text: vipInfo.label ? (vipInfo.label.text || '') : '',
-                    label_theme: vipInfo.label ? (vipInfo.label.label_theme || '') : '',
-                    text_color: '',
-                    bg_style: 0,
-                    bg_color: '',
-                    border_color: ''
-                }
-            },
-            silence: 0,
-            end_time: 0,
-            silence_url: '',
-            likes: { like_num: 0, skr_tip: '该页面由哔哩漫游修复' },
-            pr_info: {},
-            relation: { status: 1 },
-            is_deleted: 0,
-            honours: { colour: { dark: '#CE8620', normal: '#F0900B' }, tags: null },
-            profession: {}
-        },
-        images: {
-            imgUrl: face || 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
-            night_imgurl: face || 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
-            has_garb: true,
-            goods_available: true
-        },
-        live: {
-            roomStatus: 0,
-            roundStatus: 0,
-            liveStatus: 0,
-            url: '',
-            title: '',
-            cover: '',
-            online: 0,
-            roomid: 0,
-            broadcast_type: 0,
-            online_hidden: 0,
-            link: ''
-        },
-        archive: {
-            order: [
-                { title: '最新发布', value: 'pubdate' },
-                { title: '最多播放', value: 'click' }
-            ],
-            count: 9999,
-            item: []
-        },
-        series: { item: [] },
-        play_game: { count: 0, item: [] },
-        article: { count: 0, item: [], lists_count: 0, lists: [] },
-        season: { count: 0, item: [] },
-        coin_archive: { count: 0, item: [] },
-        like_archive: { count: 0, item: [] },
-        audios: { count: 0, item: [] },
-        favourite2: { count: 0, item: [] },
-        comic: { count: 0, item: [] },
-        ugc_season: { count: 0, item: [] },
-        cheese: { count: 0, item: [] },
-        fans_effect: {},
-        tab2: [
-            { title: '动态', param: 'dynamic' },
-            { title: '投稿', param: 'contribute', items: [{ title: '视频', param: 'video' }] }
-        ]
-    };
+    const verify = card.official_verify || {};
 
     return {
         code: 0,
         message: '0',
         ttl: 1,
-        data: data
+        data: {
+            // Xposed 顶层
+            relation: -999,
+            guest_relation: -999,
+            default_tab: 'video',
+            is_params: true,
+            setting: {
+                fav_video: 0, coins_video: 0, likes_video: 0, bangumi: 0,
+                played_game: 0, groups: 0, comic: 0, bbq: 0, dress_up: 0,
+                disable_following: 0, live_playback: 1, close_space_medal: 0,
+                only_show_wearing: 0
+            },
+            tab: {
+                archive: true, article: true, clip: true, album: true,
+                favorite: false, bangumi: false, coin: false, like: false,
+                community: false, dynamic: true, audios: true, shop: false,
+                mall: false, ugc_season: false, comic: false, cheese: false,
+                sub_comic: false, activity: false, series: false
+            },
+            card: {
+                mid: String(mid),
+                name: card.name || '',
+                approve: false,
+                sex: card.sex || '保密',
+                rank: card.rank || '0',
+                face: card.face || '',
+                // Xposed: DisplayRank 为空字符串 (不是 '0')
+                DisplayRank: '',
+                regtime: 0,
+                spacesta: 0,
+                birthday: '',
+                place: '',
+                // Xposed: description 始终为 "该页面由哔哩漫游修复"
+                description: '该页面由哔哩漫游修复',
+                article: 0,
+                // Xposed: attentions 为 null (不是 [])
+                attentions: null,
+                // Xposed 默认值: fans=114, friend=514, attention=233
+                fans: card.fans || 114,
+                friend: card.friend || 514,
+                attention: card.attention || 233,
+                // Xposed: sign 前缀 "【该页面由哔哩漫游修复】"
+                sign: '【该页面由哔哩漫游修复】' + (card.sign || ''),
+                level_info: {
+                    current_level: levelInfo.current_level || 0,
+                    current_min: levelInfo.current_min || 0,
+                    current_exp: levelInfo.current_exp || 0,
+                    // Xposed: next_exp 转为字符串
+                    next_exp: String(levelInfo.next_exp || 0)
+                },
+                pendant: {
+                    pid: 0, name: '', image: '', expire: 0,
+                    image_enhance: '', image_enhance_frame: ''
+                },
+                nameplate: {
+                    nid: 0, name: '', image: '', image_small: '',
+                    level: '', condition: ''
+                },
+                // Xposed: official_verify 含 role + title
+                official_verify: {
+                    type: verify.type || -1,
+                    desc: verify.desc || '',
+                    role: 3,
+                    title: verify.desc || ''
+                },
+                // Xposed: vip 对象精简
+                vip: {
+                    vipType: 0, vipDueDate: 0, dueRemark: '',
+                    accessStatus: 0, vipStatus: 0, vipStatusWarn: '',
+                    themeType: 0,
+                    label: {
+                        path: '', text: '', label_theme: '',
+                        text_color: '', bg_style: 0, bg_color: '', border_color: ''
+                    }
+                },
+                silence: 0,
+                end_time: 0,
+                silence_url: '',
+                likes: { like_num: 0, skr_tip: '该页面由哔哩漫游修复' },
+                pr_info: {},
+                relation: { status: 1 },
+                is_deleted: 0,
+                honours: {
+                    colour: { dark: '#CE8620', normal: '#F0900B' },
+                    tags: null
+                },
+                profession: {}
+            },
+            // Xposed: images 硬编码占位图
+            images: {
+                imgUrl: 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
+                night_imgurl: 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
+                has_garb: true,
+                goods_available: true
+            },
+            live: {
+                roomStatus: 0, roundStatus: 0, liveStatus: 0,
+                url: '', title: '', cover: '', online: 0, roomid: 0,
+                broadcast_type: 0, online_hidden: 0, link: ''
+            },
+            // Xposed: archive.count=9999 强制客户端加载视频列表
+            archive: {
+                order: [
+                    { title: '最新发布', value: 'pubdate' },
+                    { title: '最多播放', value: 'click' }
+                ],
+                count: 9999,
+                item: []
+            },
+            series: { item: [] },
+            play_game: { count: 0, item: [] },
+            article: { count: 0, item: [], lists_count: 0, lists: [] },
+            season: { count: 0, item: [] },
+            coin_archive: { count: 0, item: [] },
+            like_archive: { count: 0, item: [] },
+            audios: { count: 0, item: [] },
+            favourite2: { count: 0, item: [] },
+            comic: { count: 0, item: [] },
+            ugc_season: { count: 0, item: [] },
+            cheese: { count: 0, item: [] },
+            fans_effect: {},
+            tab2: [
+                { title: '动态', param: 'dynamic' },
+                { title: '投稿', param: 'contribute', items: [{ title: '视频', param: 'video' }] }
+            ]
+        }
     };
+}
 }
 
 /**
