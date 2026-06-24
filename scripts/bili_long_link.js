@@ -45,7 +45,7 @@ if (MODE === 'av' && $request.body) {
         $request.body.split('&').forEach(pair => {
             const idx = pair.indexOf('=');
             if (idx > 0) {
-                reqBody[pair.slice(0, idx)] = decodeURIComponent(pair.slice(idx + 1));
+                reqBody[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
             }
         });
     } catch (_) { }
@@ -151,7 +151,8 @@ function resolveRedirect(shortPath, callback) {
     };
 
     if (typeof $httpClient !== 'undefined') {
-        $httpClient.head({ url, opts: { redirection: false } }, (error, response) => {
+        // Surge/Loon: 跟随重定向前捕获 Location 头
+        $httpClient.head({ url, 'auto-redirect': false }, (error, response) => {
             if (!error && response) {
                 const loc = (response.headers && (response.headers.Location || response.headers.location))
                     || (response.status === 302 && response.url && response.url !== url && response.url);
@@ -160,15 +161,13 @@ function resolveRedirect(shortPath, callback) {
             done(null);
         });
     } else if (typeof $task !== 'undefined') {
-        const taskTimeout = setTimeout(() => done(null), 3000);
+        // Quantumult X
         $task.fetch({ url, method: 'HEAD' }).then(
             response => {
-                clearTimeout(taskTimeout);
                 const loc = response.headers?.Location || response.headers?.location;
                 done(loc || null);
             },
             () => {
-                clearTimeout(taskTimeout);
                 done(null);
             }
         );

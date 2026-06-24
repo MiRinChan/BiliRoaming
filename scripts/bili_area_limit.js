@@ -114,10 +114,9 @@ function fixSeasonData(obj) {
 function fixPlayurlData(obj) {
     if (!obj) return obj;
 
-    // 如果 code 为 -404 (区域限制失败)，尝试恢复
+    // 如果 code 为 -404 (区域限制失败)，不作处理——该响应通常无有效数据
     if (obj.code === -404) {
-        obj.code = 0;
-        obj.message = '0';
+        return obj;
     }
 
     if (obj.code !== 0) return obj;
@@ -173,33 +172,33 @@ function fixAreaLimit(obj) {
     if (!obj || typeof obj !== 'object') return;
 
     // 解除 area_limit
-    if (obj.hasOwnProperty('area_limit') && obj.area_limit === 1) {
+    if (Object.hasOwn(obj, 'area_limit') && obj.area_limit === 1) {
         obj.area_limit = 0;
     }
 
     // 允许弹幕
-    if (obj.hasOwnProperty('allow_dm') && obj.allow_dm === 0) {
+    if (Object.hasOwn(obj, 'allow_dm') && obj.allow_dm === 0) {
         obj.allow_dm = 1;
     }
 
     // 允许下载
-    if (obj.hasOwnProperty('allow_download') && obj.allow_download === 0) {
+    if (Object.hasOwn(obj, 'allow_download') && obj.allow_download === 0) {
         obj.allow_download = 1;
     }
 
     // 允许评论
-    if (obj.hasOwnProperty('allow_comment') && obj.allow_comment === 0) {
+    if (Object.hasOwn(obj, 'allow_comment') && obj.allow_comment === 0) {
         obj.allow_comment = 1;
     }
 
     // 允许点播
-    if (obj.hasOwnProperty('allow_demand') && obj.allow_demand === 0) {
+    if (Object.hasOwn(obj, 'allow_demand') && obj.allow_demand === 0) {
         obj.allow_demand = 1;
     }
 
     // 修复 area 字段(某些情况下返回 restricted)
     if (obj.area === 'restricted' || obj.area === '') {
-        obj.area = 'cn';
+        obj.area = '';
     }
 }
 
