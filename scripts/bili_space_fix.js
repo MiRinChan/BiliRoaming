@@ -4,8 +4,10 @@
  * 修复因区域限制/账号状态被隐藏或限制的用户空间数据
  *
  * 拦截接口:
- *   - api.bilibili.com/x/space/acc/info             用户信息
- *   - api.bilibili.com/x/space/arc/search            用户视频列表
+ *   - api.bilibili.com/x/v2/space               新版空间 API (iOS/Android 主要入口)
+ *   - api.bilibili.com/x/space/acc/info         用户信息（旧版）
+ *   - api.bilibili.com/x/space?                 Xposed hook 兼容
+ *   - api.bilibili.com/x/space/arc/search       用户视频列表
  *   - api.bilibili.com/x/community-service (user/feed)  用户动态
  *
  * 修改字段:
@@ -47,8 +49,17 @@ try {
     return;
 }
 
-// 用户信息
-if (url.includes('/space/acc/info')) {
+// Determine which space API we're hitting
+// /x/v2/space — unified v2 space API (iOS/Android 新版)
+// /x/space? — old Xposed hook point
+// /x/space/acc/info — user profile info (旧版)
+const isV2Space = url.includes('/v2/space') || url.includes('/x/space?');
+const isAccInfo = url.includes('/space/acc/info');
+const isArcSearch = url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search');
+const isFeed = url.includes('/community-service') && url.includes('/user/feed');
+
+// 用户信息 (any variant: v2, old acc/info, Xposed hook point)
+if (isV2Space || isAccInfo) {
     fixAccInfo(obj, url, (fixedObj) => {
         $done({ body: JSON.stringify(fixedObj) });
     });
@@ -56,12 +67,12 @@ if (url.includes('/space/acc/info')) {
 }
 
 // 用户视频列表
-if (url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search')) {
+if (isArcSearch) {
     obj = fixSpaceArc(obj);
 }
 
 // 用户动态
-if (url.includes('/community-service') && url.includes('/user/feed')) {
+if (isFeed) {
     obj = fixSpaceFeed(obj);
 }
 
@@ -113,6 +124,9 @@ function fixAccInfo(obj, url, done) {
         const mid = extractMid(url);
         if (!mid) return done(obj);
 
+        // 判断是 v2 空间 API (/x/v2/space) 还是旧版 (/x/space/acc/info)
+        const isV2 = url.includes('/v2/space') || url.includes('/x/space?');
+
         // 尝试通过 account.bilibili.com 获取用户基础信息
         // getCardByMid 对已注销账号仍然可能返回数据
         const cardUrl = `https://account.bilibili.com/api/member/getCardByMid?mid=${mid}`;
@@ -124,7 +138,7 @@ function fixAccInfo(obj, url, done) {
                     try {
                         const cardResp = JSON.parse(data);
                         if (cardResp.code === 0 && cardResp.card) {
-                            obj = buildFakeAccInfo(mid, cardResp.card);
+                            obj = buildFakeAccInfo(mid, cardResp.card, isV2);
                             console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
@@ -143,7 +157,7 @@ function fixAccInfo(obj, url, done) {
                     try {
                         const cardResp = JSON.parse(response.body);
                         if (cardResp.code === 0 && cardResp.card) {
-                            obj = buildFakeAccInfo(mid, cardResp.card);
+                            obj = buildFakeAccInfo(mid, cardResp.card, isV2);
                             console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
@@ -168,10 +182,13 @@ function fixAccInfo(obj, url, done) {
 }
 
 /**
- * 从 getCardByMid 响应构建 acc/info 格式的空间数据
+ * 从 getCardByMid 响应构建空间数据
  * 参照 Xposed BiliRoaming BiliRoamingApi.getSpace() 的逻辑
+ * @param {string} mid - 用户 mid
+ * @param {object} card - getCardByMid 返回的 card 对象
+ * @param {boolean} isV2 - 是否为 /x/v2/space API（新版 protobuf 格式）
  */
-function buildFakeAccInfo(mid, card) {
+function buildFakeAccInfo(mid, card, isV2) {
     const levelInfo = card.level_info || {};
     const officialVerify = card.official_verify || {};
     const vipInfo = card.vip || {};
