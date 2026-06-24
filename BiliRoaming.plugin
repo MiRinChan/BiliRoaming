@@ -29,6 +29,8 @@ area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
 pure = select,"all","feed","search","detail","dynamic","live","comment",tag=净化功能,desc=过滤B站广告和推广内容
 space = switch,false,tag=空间修复,desc=修复被限制的用户空间
+dm_level = select,"0","1","2","3","4","5","6",tag=弹幕等级过滤,desc=屏蔽低于指定等级的弹幕(0=不过滤)
+dm_gradient = switch,false,tag=渐变色过滤,desc=过滤VIP渐变色弹幕
 
 [Script]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/view\/v\d\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=AreaUnlock, argument=[{area}]
@@ -48,6 +50,7 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply scrip
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v2\/dm script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_dm_filter.js, requires-body=true, tag=DmFilter, argument=[{dm_level},{dm_gradient}]
 
 [MITM]
 hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net
