@@ -200,7 +200,7 @@ function fixAccInfo(obj, url, done) {
 
 /**
  * 从 getCardByMid 响应构建空间数据
- * 逐字段对齐 Xposed BiliRoamingApi.getSpace() 的返回格式
+ * iOS 兼容为主，description/sign 标记对齐 Xposed getSpace()
  * @param {string} mid - 用户 mid
  * @param {object|null} card - getCardByMid 返回的 card 对象（可为 null）
  * @param {boolean} isV2 - 是否为 /x/v2/space API
@@ -208,14 +208,15 @@ function fixAccInfo(obj, url, done) {
 function buildFakeAccInfo(mid, card, isV2) {
     card = card || {};
     const levelInfo = card.level_info || {};
-    const verify = card.official_verify || {};
+    const officialVerify = card.official_verify || {};
+    const vipInfo = card.vip || {};
+    const face = card.face || '';
 
     return {
         code: 0,
         message: '0',
         ttl: 1,
         data: {
-            // Xposed 顶层
             relation: -999,
             guest_relation: -999,
             default_tab: 'video',
@@ -239,30 +240,26 @@ function buildFakeAccInfo(mid, card, isV2) {
                 approve: false,
                 sex: card.sex || '保密',
                 rank: card.rank || '0',
-                face: card.face || '',
-                // Xposed: DisplayRank 为空字符串 (不是 '0')
-                DisplayRank: '',
+                face: face,
+                DisplayRank: '0',
                 regtime: 0,
                 spacesta: 0,
                 birthday: '',
                 place: '',
-                // Xposed: description 始终为 "该页面由哔哩漫游修复"
+                // align: description 标记
                 description: '该页面由哔哩漫游修复',
                 article: 0,
-                // Xposed: attentions 为 null (不是 [])
-                attentions: null,
-                // Xposed 默认值: fans=114, friend=514, attention=233
-                fans: card.fans || 114,
-                friend: card.friend || 514,
-                attention: card.attention || 233,
-                // Xposed: sign 前缀 "【该页面由哔哩漫游修复】"
+                attentions: [],
+                fans: card.fans || 0,
+                friend: card.friend || 0,
+                attention: card.attention || 0,
+                // align: sign 标记
                 sign: '【该页面由哔哩漫游修复】' + (card.sign || ''),
                 level_info: {
                     current_level: levelInfo.current_level || 0,
                     current_min: levelInfo.current_min || 0,
                     current_exp: levelInfo.current_exp || 0,
-                    // Xposed: next_exp 转为字符串
-                    next_exp: String(levelInfo.next_exp || 0)
+                    next_exp: levelInfo.next_exp || 0
                 },
                 pendant: {
                     pid: 0, name: '', image: '', expire: 0,
@@ -272,20 +269,22 @@ function buildFakeAccInfo(mid, card, isV2) {
                     nid: 0, name: '', image: '', image_small: '',
                     level: '', condition: ''
                 },
-                // Xposed: official_verify 含 role + title
                 official_verify: {
-                    type: verify.type || -1,
-                    desc: verify.desc || '',
-                    role: 3,
-                    title: verify.desc || ''
+                    type: officialVerify.type || -1,
+                    desc: officialVerify.desc || ''
                 },
-                // Xposed: vip 对象精简
                 vip: {
-                    vipType: 0, vipDueDate: 0, dueRemark: '',
-                    accessStatus: 0, vipStatus: 0, vipStatusWarn: '',
+                    vipType: vipInfo.vipType || 0,
+                    vipDueDate: vipInfo.vipDueDate || 0,
+                    dueRemark: '',
+                    accessStatus: 0,
+                    vipStatus: vipInfo.vipStatus || 0,
+                    vipStatusWarn: '',
                     themeType: 0,
                     label: {
-                        path: '', text: '', label_theme: '',
+                        path: '',
+                        text: vipInfo.label ? vipInfo.label.text || '' : '',
+                        label_theme: vipInfo.label ? vipInfo.label.label_theme || '' : '',
                         text_color: '', bg_style: 0, bg_color: '', border_color: ''
                     }
                 },
@@ -296,16 +295,12 @@ function buildFakeAccInfo(mid, card, isV2) {
                 pr_info: {},
                 relation: { status: 1 },
                 is_deleted: 0,
-                honours: {
-                    colour: { dark: '#CE8620', normal: '#F0900B' },
-                    tags: null
-                },
+                honours: { colour: { dark: '#CE8620', normal: '#F0900B' }, tags: null },
                 profession: {}
             },
-            // Xposed: images 硬编码占位图
             images: {
-                imgUrl: 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
-                night_imgurl: 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
+                imgUrl: face || 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
+                night_imgurl: face || 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
                 has_garb: true,
                 goods_available: true
             },
@@ -314,7 +309,6 @@ function buildFakeAccInfo(mid, card, isV2) {
                 url: '', title: '', cover: '', online: 0, roomid: 0,
                 broadcast_type: 0, online_hidden: 0, link: ''
             },
-            // Xposed: archive.count=9999 强制客户端加载视频列表
             archive: {
                 order: [
                     { title: '最新发布', value: 'pubdate' },
