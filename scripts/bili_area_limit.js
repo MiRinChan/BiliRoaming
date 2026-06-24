@@ -210,6 +210,8 @@ function readArg(key, def) {
     if (typeof $argument === 'string') {
         const m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];
+        // Surge [{key}] template passes raw value without key= prefix
+        if ($argument && !$argument.includes('=')) return $argument;
     }
     return def;
 }

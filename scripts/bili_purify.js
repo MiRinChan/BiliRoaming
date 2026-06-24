@@ -179,7 +179,7 @@ function purifyPopular(obj) {
  * 净化搜索
  * 移除: 推广热搜、特殊推广结果、banner
  */
- function purifySearch(obj) {
+function purifySearch(obj) {
     const data = obj.data;
     if (!data) return obj;
 
@@ -427,6 +427,8 @@ function readArg(key, def) {
     if (typeof $argument === 'string') {
         const m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];
+        // Surge [{key}] template passes raw value without key= prefix
+        if ($argument && !$argument.includes('=')) return $argument;
     }
     return def;
 }
