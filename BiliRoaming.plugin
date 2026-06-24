@@ -50,7 +50,7 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply scrip
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v2\/dm script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_dm_filter.js, requires-body=true, tag=DmFilter, argument=[{dm_level},{dm_gradient}]
+http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_dm_filter.js, requires-body=true, tag=DmFilter, argument=dm_level=[{dm_level}]&dm_gradient=[{dm_gradient}]
 
 [MITM]
-hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net
+hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net, grpc.biliapi.net

@@ -5,42 +5,33 @@
  * 2. 渐变色弹幕过滤 — 移除 VIP 专属渐变色弹幕
  *
  * 拦截接口:
- *   - api.bilibili.com/x/v2/dm              弹幕分段接口 (protobuf → JSON)
- *   - api.bilibili.com/x/v2/dm/web/seg.so   网页弹幕接口
+ *   - grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile
+ *     gRPC + gzip-compressed protobuf DmSegMobileReply
  *
- * Bilibili /x/v2/dm 返回的 DmWebViewReply protobuf 转 JSON 结构:
- *   {
- *     "dms": [
- *       {
- *         "id": 123456,         // 弹幕 ID
- *         "dm_time": 45.5,      // 视频时间 (秒)
- *         "mode": 1,            // 弹幕模式 (1=滚动, 4=底部, 5=顶部)
- *         "font_size": 25,      // 字号
- *         "color": 16777215,    // 颜色 (0xffffff), 60001=VIP渐变色
- *         "crc32_id": "xxx",    // 发送者 UID 的 CRC32 hash
- *         "text": "弹幕内容",
- *         "send_time": 1719230400,
- *         "weight": 2,          // 弹幕权重 (≈用户等级权重)
- *         "action": "",
- *         "pool": 0,            // 0=普通, 1=字幕, 2=特殊
- *         "id_str": "123456",
- *         "attr": 0,            // 属性位掩码 (bit0=渐变色?)
- *         "uid": 987654         // 发送者 UID
- *       }
- *     ]
- *   }
+ * 响应格式（自动检测）:
+ *   A. gRPC frame (5B) → gzip → protobuf   (Surge, 部分 Loon 版本)
+ *   B. gzip → protobuf                       (Loon 自动剥离 frame)
+ *   C. 裸 protobuf                           (Loon 自动解压)
+ *
+ * DmSegMobileReply protobuf:
+ *   repeated DanmakuElem elems = 1;  (tag 0x0A, wire type 2)
+ *
+ * DanmakuElem 关键字段:
+ *   uint32 color  = 5;  (tag 0x28)  普通颜色为 RGB 整数值, 60001 = VIP 渐变色
+ *   int32  weight = 9;  (tag 0x48)  弹幕权重, 值域 0~9
+ *   int32  pool   = 11; (tag 0x58)  0=普通, 1=字幕, 2=特殊
+ *   int32  attr   = 13; (tag 0x68)  属性位掩码
  *
  * 参数 (argument):
- *   dm_level=0       弹幕等级过滤 (0=不过滤, 1~6=屏蔽该等级以下的弹幕)
- *                    基于 weight 字段: weight<0 为低权重, weight>=5 为高权重
- *                    映射: dm_level=1 → weight<1, dm_level=3 → weight<3
- *   dm_gradient=false 过滤渐变色弹幕 (true=移除渐变色/特殊色弹幕)
+ *   dm_level=0       弹幕等级过滤 (0=不过滤, 1~6=屏蔽 weight 低于该值的弹幕)
+ *   dm_gradient=false 过滤渐变色弹幕
  *
- * 适用于: Loon, Surge, Quantumult X
- * Update: 2026-06-24
+ * 适用于: Loon (优先), Surge
+ * Update: 2026-06-24 v3
  */
 
-// === 解析参数 ===
+// ==================== 参数解析 ====================
+
 const DM_LEVEL = parseInt(readArg('dm_level', '0'), 10) || 0;
 const DM_GRADIENT = readArg('dm_gradient', false) === true ||
     readArg('dm_gradient', false) === 'true';
@@ -48,141 +39,391 @@ const DM_GRADIENT = readArg('dm_gradient', false) === true ||
 const ENABLED = DM_LEVEL > 0 || DM_GRADIENT;
 
 const url = $request.url;
-const body = $response.body;
 
-if (!body || !ENABLED) {
+if (!ENABLED) {
     $done({});
     return;
 }
 
-// 只处理弹幕分段接口
-if (!url.includes('/x/v2/dm')) {
+// 匹配 DmSegMobile gRPC 或 /x/v2/dm REST
+if (!url.includes('DmSegMobile') && !url.includes('/x/v2/dm')) {
     $done({});
     return;
 }
+
+// ==================== 主流程 ====================
 
 try {
-    let obj = JSON.parse(body);
-
-    if (!obj || obj.code !== 0) {
+    const rawBytes = getResponseBytes();
+    if (!rawBytes || rawBytes.length < 2) {
         $done({});
         return;
     }
 
-    const data = obj.data;
-    if (!data) {
+    // 自动检测并剥离 gRPC frame / gzip, 得到 protobuf 字节
+    const decompressed = unwrap(rawBytes);
+    if (!decompressed || decompressed.length === 0) {
         $done({});
         return;
     }
 
-    // 弹幕列表可能在 data.dms 或 data.dm 或直接是数组
-    let dmList = data.dms || data.dm || data;
+    // 过滤 protobuf DanmakuElem
+    const filtered = filterDanmakuElems(decompressed);
 
-    // 如果 data 本身就是数组 (部分版本)
-    if (Array.isArray(data)) {
-        dmList = data;
+    if (filtered === null) {
+        $done({});  // 无变化, 透传
+        return;
     }
 
-    if (!Array.isArray(dmList)) {
+    // 重新包装: protobuf → gzip → gRPC frame
+    const output = rewrap(rawBytes, filtered);
+    if (!output) {
         $done({});
         return;
     }
 
-    const originalCount = dmList.length;
-    let filtered = 0;
-    let gradientFiltered = 0;
-
-    // 过滤弹幕
-    const newDmList = [];
-    for (const dm of dmList) {
-        if (!dm || typeof dm !== 'object') continue;
-
-        // 1. 等级过滤 — 基于 weight 字段
-        if (DM_LEVEL > 0) {
-            const weight = dm.weight !== undefined ? dm.weight : 0;
-            // weight 表示弹幕权重，高 weight 通常对应高等级用户
-            // 移动端 API 中 weight 范围通常 0-9
-            // 映射: dm_level=1 屏蔽 weight<1, dm_level=3 屏蔽 weight<3, 以此类推
-            const effectiveWeight = Math.max(0, Math.min(9, Number(weight) || 0));
-            if (effectiveWeight < DM_LEVEL) {
-                filtered++;
-                continue;
-            }
-        }
-
-        // 2. 渐变色过滤
-        if (DM_GRADIENT) {
-            // 渐变色弹幕特征:
-            //   - color == 60001 (VIP 专属渐变色标记)
-            //   - attr 字段 bit 位指示渐变色
-            //   - pool == 2 (特殊弹幕池)
-            //   - 存在 gradient / color_type 等渐变元数据字段
-
-            const color = dm.color;
-            const attr = dm.attr || 0;
-            const pool = dm.pool || 0;
-
-            // 60001 是 Bilibili VIP 渐变色弹幕的特殊色值标记
-            if (color === 60001 || color === '60001') {
-                gradientFiltered++;
-                continue;
-            }
-
-            // attr bit 位: 某些 API 版本用 attr 属性位标记渐变色
-            // attr & 0x1 或 attr & 0x4 可能指示特殊/渐变弹幕
-            if (attr & 0x1 || attr & 0x4) {
-                gradientFiltered++;
-                continue;
-            }
-
-            // pool == 2 表示特殊弹幕池 (通常包含渐变色弹幕)
-            if (pool === 2) {
-                gradientFiltered++;
-                continue;
-            }
-
-            // 检测渐变相关元数据字段
-            if (dm.gradient !== undefined || dm.color_type !== undefined ||
-                dm.gradient_colors !== undefined) {
-                gradientFiltered++;
-                continue;
-            }
-        }
-
-        newDmList.push(dm);
-    }
-
-    // 将过滤后的结果写回
-    if (Array.isArray(data.dms)) {
-        data.dms = newDmList;
-    } else if (Array.isArray(data.dm)) {
-        data.dm = newDmList;
-    } else if (Array.isArray(data)) {
-        obj.data = newDmList;
-    }
-
-    const remaining = newDmList.length;
-    if (originalCount !== remaining) {
-        console.log(`BiliRoaming dm_filter: ${originalCount} → ${remaining} ` +
-            `(level:${filtered}, gradient:${gradientFiltered})`);
-    }
-
-    $done({ body: JSON.stringify(obj) });
+    setResponseBytes(output);
 
 } catch (e) {
     console.log(`BiliRoaming dm_filter error: ${e}`);
     $done({});
 }
 
+// ==================== 响应解包 / 打包 ====================
+
 /**
- * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
+ * 自动检测格式并解包到 protobuf
+ * 支持: gRPC+gzip, gzip, 裸 protobuf
  */
+function unwrap(rawBytes) {
+    let buf = rawBytes;
+
+    // 1. 检测 gRPC frame: 首字节为 flag (0x00 或 0x01), 后 4 字节 BE 长度
+    if (buf.length >= 5 && (buf[0] === 0x00 || buf[0] === 0x01)) {
+        const claimedLen = (buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4];
+        const actualAvail = buf.length - 5;
+        // 验证: 长度合理 (不超过可用字节数 + 合理偏差)
+        if (claimedLen > 0 && claimedLen <= actualAvail + 100) {
+            buf = buf.slice(5, 5 + Math.min(claimedLen, actualAvail));
+        }
+        // 如果长度不合理, 不剥离 (可能不是 gRPC frame)
+    }
+
+    // 2. 尝试 gzip 解压 (gzip magic: 0x1F 0x8B)
+    if (buf.length >= 2 && buf[0] === 0x1F && buf[1] === 0x8B) {
+        const decompressed = ungzip(buf);
+        if (decompressed) return decompressed;
+    }
+
+    // 3. 已经是裸 protobuf
+    return buf;
+}
+
+/**
+ * 反向打包: protobuf → gzip → gRPC frame
+ */
+function rewrap(originalRaw, protobufBytes) {
+    const compressed = gzip(protobufBytes);
+    if (!compressed) return null;
+
+    // 检测原始响应是否有 gRPC frame
+    if (originalRaw.length >= 5 && (originalRaw[0] === 0x00 || originalRaw[0] === 0x01)) {
+        const flag = originalRaw[0];
+        const frame = new Uint8Array(5 + compressed.length);
+        frame[0] = flag;
+        frame[1] = (compressed.length >>> 24) & 0xFF;
+        frame[2] = (compressed.length >>> 16) & 0xFF;
+        frame[3] = (compressed.length >>> 8) & 0xFF;
+        frame[4] = compressed.length & 0xFF;
+        frame.set(compressed, 5);
+        return frame;
+    }
+
+    // 无 frame: 直接返回压缩后数据
+    return compressed;
+}
+
+// ==================== 弹幕过滤逻辑 ====================
+
+/**
+ * 扫描 DmSegMobileReply protobuf, 移除匹配的 DanmakuElem
+ * @param {Uint8Array} buf - protobuf 字节
+ * @returns {Uint8Array|null} 过滤后的字节, 无变化返回 null
+ */
+function filterDanmakuElems(buf) {
+    let off = 0;
+    const outputParts = [];
+    let filteredCount = 0;
+    let keptCount = 0;
+    let lastCopyEnd = 0;
+
+    while (off < buf.length) {
+        const tag = buf[off];
+        const fieldNum = tag >> 3;
+        const wireType = tag & 0x07;
+
+        if (fieldNum === 1 && wireType === 2) {
+            // DanmakuElem 嵌套消息: tag 0x0A
+            off++;
+
+            const [length, vlen] = readVarint(buf, off);
+            off += vlen;
+
+            const elemStart = off - 1 - vlen;
+            const elemBytes = buf.slice(off, off + Number(length));
+            off += Number(length);
+
+            if (shouldFilterElem(elemBytes)) {
+                if (lastCopyEnd < elemStart) {
+                    outputParts.push(buf.slice(lastCopyEnd, elemStart));
+                }
+                lastCopyEnd = off;
+                filteredCount++;
+            } else {
+                keptCount++;
+            }
+        } else {
+            // 跳过一个顶层字段
+            off = skipField(buf, off);
+        }
+    }
+
+    if (filteredCount === 0) return null;
+
+    if (lastCopyEnd < buf.length) {
+        outputParts.push(buf.slice(lastCopyEnd));
+    }
+
+    if (outputParts.length === 0) {
+        console.log(`BiliRoaming dm_filter: all filtered (${filteredCount})`);
+        return new Uint8Array(0);
+    }
+
+    if (outputParts.length === 1) {
+        console.log(`BiliRoaming dm_filter: kept=${keptCount}, filtered=${filteredCount}`);
+        return outputParts[0];
+    }
+
+    let totalLen = 0;
+    for (const p of outputParts) totalLen += p.length;
+    const result = new Uint8Array(totalLen);
+    let pos = 0;
+    for (const p of outputParts) {
+        result.set(p, pos);
+        pos += p.length;
+    }
+
+    console.log(`BiliRoaming dm_filter: kept=${keptCount}, filtered=${filteredCount}`);
+    return result;
+}
+
+/**
+ * 检查单个 DanmakuElem 是否应被过滤
+ * @param {Uint8Array} elem - DanmakuElem protobuf 字节 (不含外层 tag+length)
+ */
+function shouldFilterElem(elem) {
+    let off = 0;
+    let weight = 0;
+    let color = 0;
+    let pool = 0;
+    let attr = 0;
+
+    while (off < elem.length) {
+        const tag = elem[off];
+        const fn = tag >> 3;
+        const wt = tag & 0x07;
+        off++;
+
+        if (wt === 0) {
+            const [val, vlen] = readVarint(elem, off);
+            off += vlen;
+            if (fn === 9) weight = Number(val);
+            else if (fn === 5) color = Number(val);
+            else if (fn === 11) pool = Number(val);
+            else if (fn === 13) attr = Number(val);
+        } else {
+            off = skipFieldPayload(elem, off, wt);
+        }
+    }
+
+    if (DM_LEVEL > 0 && weight < DM_LEVEL) return true;
+
+    if (DM_GRADIENT) {
+        if (color === 60001) return true;
+        if (pool === 2) return true;
+        if (attr & (0x1 | 0x4)) return true;
+    }
+
+    return false;
+}
+
+// ==================== Protobuf 辅助 ====================
+
+function readVarint(buf, offset) {
+    let result = 0n;
+    let shift = 0n;
+    let read = 0;
+    while (offset + read < buf.length) {
+        const b = BigInt(buf[offset + read]);
+        read++;
+        result |= (b & 0x7Fn) << shift;
+        shift += 7n;
+        if (!(b & 0x80n)) break;
+    }
+    return [result, read];
+}
+
+/** 跳过一个 protobuf 字段 (tag 已消费) */
+function skipField(buf, off) {
+    if (off >= buf.length) return off;
+    const tag = buf[off];
+    const wt = tag & 0x07;
+    off++;
+    return skipFieldPayload(buf, off, wt);
+}
+
+function skipFieldPayload(buf, off, wt) {
+    if (wt === 0) {
+        const [, vlen] = readVarint(buf, off);
+        return off + vlen;
+    } else if (wt === 2) {
+        const [len, vlen] = readVarint(buf, off);
+        return off + vlen + Number(len);
+    } else if (wt === 5) {
+        return off + 4;
+    } else if (wt === 1) {
+        return off + 8;
+    }
+    return off; // wt 3,4 (start/end group) — 废弃
+}
+
+// ==================== IO 层 (Loon 优先) ====================
+
+/**
+ * 获取响应原始字节
+ * Loon:  $response.body 为 base64 字符串
+ * Surge: $response.bodyBytes 为 Uint8Array
+ */
+function getResponseBytes() {
+    // Loon 优先: base64 字符串 body
+    if (typeof $response.body === 'string' && $response.body.length > 0) {
+        const bytes = decodeBase64($response.body);
+        if (bytes) return bytes;
+    }
+
+    // Surge: bodyBytes
+    if (typeof $response.bodyBytes !== 'undefined' && $response.bodyBytes) {
+        return $response.bodyBytes;
+    }
+
+    return null;
+}
+
+/**
+ * 设置响应原始字节
+ * Loon:  $done({ body: base64str })
+ * Surge: $done({ bodyBytes: Uint8Array })
+ */
+function setResponseBytes(bytes) {
+    // Loon 优先: 输出 base64 body
+    const b64 = encodeBase64(bytes);
+    $done({ body: b64 });
+}
+
+// ==================== Base64 (优先使用内置, 回退手动) ====================
+
+function decodeBase64(str) {
+    // Loon / Surge 内置
+    if (typeof $utils !== 'undefined' && typeof $utils.base64ToBytes === 'function') {
+        try {
+            const result = $utils.base64ToBytes(str);
+            if (result) return result;
+        } catch (e) { /* fall through */ }
+    }
+    // 手动解码
+    return manualBase64ToBytes(str);
+}
+
+function encodeBase64(bytes) {
+    // Loon / Surge 内置
+    if (typeof $utils !== 'undefined' && typeof $utils.bytesToBase64 === 'function') {
+        try {
+            const result = $utils.bytesToBase64(bytes);
+            if (result) return result;
+        } catch (e) { /* fall through */ }
+    }
+    // 手动编码
+    return manualBytesToBase64(bytes);
+}
+
+// ==================== gzip (统一走 $utils) ====================
+
+function ungzip(data) {
+    if (typeof $utils !== 'undefined' && typeof $utils.ungzip === 'function') {
+        try {
+            const result = $utils.ungzip(data);
+            if (result) return result;
+        } catch (e) { /* fall through */ }
+    }
+    return null;
+}
+
+function gzip(data) {
+    if (typeof $utils !== 'undefined' && typeof $utils.gzip === 'function') {
+        try {
+            const result = $utils.gzip(data);
+            if (result) return result;
+        } catch (e) { /* fall through */ }
+    }
+    return null;
+}
+
+// ==================== 手动 Base64 (无 $utils 时的回退) ====================
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function manualBase64ToBytes(b64) {
+    // 仅对看起来像 base64 的字符串解码
+    if (b64.length < 10 || !/^[A-Za-z0-9+/=]+$/.test(b64)) return null;
+    let s = b64.replace(/[^A-Za-z0-9+/]/g, '');
+    const outLen = Math.floor((s.length * 3) / 4);
+    const result = new Uint8Array(outLen);
+    let idx = 0;
+    for (let i = 0; i < s.length; i += 4) {
+        const c0 = B64.indexOf(s[i]);
+        const c1 = B64.indexOf(s[i + 1]);
+        const c2 = i + 2 < s.length ? B64.indexOf(s[i + 2]) : 0;
+        const c3 = i + 3 < s.length ? B64.indexOf(s[i + 3]) : 0;
+        if (c0 < 0 || c1 < 0) return null;
+        result[idx++] = (c0 << 2) | (c1 >> 4);
+        if (idx < outLen) result[idx++] = ((c1 & 0xF) << 4) | (c2 >> 2);
+        if (idx < outLen) result[idx++] = ((c2 & 0x3) << 6) | c3;
+    }
+    return result;
+}
+
+function manualBytesToBase64(bytes) {
+    let result = '';
+    const len = bytes.length;
+    for (let i = 0; i < len; i += 3) {
+        const b0 = bytes[i];
+        const b1 = i + 1 < len ? bytes[i + 1] : 0;
+        const b2 = i + 2 < len ? bytes[i + 2] : 0;
+        result += B64[b0 >> 2];
+        result += B64[((b0 & 0x3) << 4) | (b1 >> 4)];
+        result += i + 1 < len ? B64[((b1 & 0xF) << 2) | (b2 >> 6)] : '=';
+        result += i + 2 < len ? B64[b2 & 0x3F] : '=';
+    }
+    return result;
+}
+
+// ==================== 参数解析 ====================
+
 function readArg(key, def) {
     if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
     if (typeof $argument === 'string') {
         const m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];
-        // Surge [{key}] template passes raw value without key= prefix
         if ($argument && !$argument.includes('=')) return $argument;
     }
     return def;
