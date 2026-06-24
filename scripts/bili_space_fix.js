@@ -10,22 +10,23 @@
  *   - api.bilibili.com/x/space/arc/search       用户视频列表
  *   - api.bilibili.com/x/community-service (user/feed)  用户动态
  *
- * 修改字段:
+ * 修复字段:
  *   - area_limit: 1 -> 0         解除区域限制
  *   - card.status: -1 -> 1       恢复被屏蔽用户（若数据存在）
  *   - badge 文本中去掉受限/限定标记
  *
  * 注销账号修复 (code: -404):
  *   参照 Xposed BiliRoaming 的 fixSpace 逻辑，
- *   通过 account.bilibili.com/api/member/getCardByMid 获取用户基础信息，
- *   构造可用的空间响应
+ *   1. 通过 account.bilibili.com/api/member/getCardByMid 获取用户基础信息
+ *   2. 构造完整 BiliSpace 格式响应（含 setting/tab/images/archive 等字段）
+ *   3. getCardByMid 不可用时降级为空卡但 code=0
  *
  * 参数 (argument):
  *   space=true   启用空间修复
  *   space=false  不处理（默认关闭）
  *
  * 适用于: Loon, Surge, Quantumult X
- * Update: 2026-06-24
+ * Update: 2026-06-24 v2
  */
 
 // === 解析参数 ===
@@ -134,16 +135,23 @@ function fixAccInfo(obj, url, done) {
         if (typeof $httpClient !== 'undefined') {
             // Surge / Loon / Stash
             $httpClient.get(cardUrl, (error, response, data) => {
+                let restored = false;
                 if (!error && data) {
                     try {
                         const cardResp = JSON.parse(data);
                         if (cardResp.code === 0 && cardResp.card) {
                             obj = buildFakeAccInfo(mid, cardResp.card, isV2);
+                            restored = true;
                             console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
                         console.log(`BiliRoaming space_fix card parse error: ${e}`);
                     }
+                }
+                // getCardByMid 也失败时，仍构造最小响应避免客户端白屏
+                if (!restored) {
+                    obj = buildFakeAccInfo(mid, null, isV2);
+                    console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
                 }
                 done(obj);
             });
@@ -154,19 +162,26 @@ function fixAccInfo(obj, url, done) {
             // Quantumult X
             $task.fetch(cardUrl).then(
                 (response) => {
+                    let restored = false;
                     try {
                         const cardResp = JSON.parse(response.body);
                         if (cardResp.code === 0 && cardResp.card) {
                             obj = buildFakeAccInfo(mid, cardResp.card, isV2);
+                            restored = true;
                             console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
                         console.log(`BiliRoaming space_fix card parse error: ${e}`);
                     }
+                    if (!restored) {
+                        obj = buildFakeAccInfo(mid, null, isV2);
+                        console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
+                    }
                     done(obj);
                 },
                 (err) => {
                     console.log(`BiliRoaming space_fix fetch error: ${err}`);
+                    obj = buildFakeAccInfo(mid, null, isV2);
                     done(obj);
                 }
             );
@@ -183,101 +198,183 @@ function fixAccInfo(obj, url, done) {
 
 /**
  * 从 getCardByMid 响应构建空间数据
- * 参照 Xposed BiliRoaming BiliRoamingApi.getSpace() 的逻辑
+ * 参照 Xposed BiliRoaming BiliRoamingApi.getSpace() 的完整返回格式
  * @param {string} mid - 用户 mid
  * @param {object} card - getCardByMid 返回的 card 对象
- * @param {boolean} isV2 - 是否为 /x/v2/space API（新版 protobuf 格式）
+ * @param {boolean} isV2 - 是否为 /x/v2/space API
  */
 function buildFakeAccInfo(mid, card, isV2) {
+    card = card || {};
     const levelInfo = card.level_info || {};
     const officialVerify = card.official_verify || {};
     const vipInfo = card.vip || {};
+    const face = card.face || '';
+
+    const data = {
+        // Xposed getSpace() 顶层字段
+        relation: -999,
+        guest_relation: -999,
+        default_tab: 'video',
+        is_params: true,
+        setting: {
+            fav_video: 0,
+            coins_video: 0,
+            likes_video: 0,
+            bangumi: 0,
+            played_game: 0,
+            groups: 0,
+            comic: 0,
+            bbq: 0,
+            dress_up: 0,
+            disable_following: 0,
+            live_playback: 1,
+            close_space_medal: 0,
+            only_show_wearing: 0
+        },
+        tab: {
+            archive: true,
+            article: true,
+            clip: true,
+            album: true,
+            favorite: false,
+            bangumi: false,
+            coin: false,
+            like: false,
+            community: false,
+            dynamic: true,
+            audios: true,
+            shop: false,
+            mall: false,
+            ugc_season: false,
+            comic: false,
+            cheese: false,
+            sub_comic: false,
+            activity: false,
+            series: false
+        },
+        card: {
+            mid: String(mid),
+            name: card.name || '',
+            approve: false,
+            sex: card.sex || '保密',
+            rank: card.rank || '0',
+            face: face,
+            DisplayRank: '0',
+            regtime: 0,
+            spacesta: 0,
+            birthday: '',
+            place: '',
+            description: '',
+            article: 0,
+            attentions: [],
+            fans: card.fans || 0,
+            friend: card.friend || 0,
+            attention: card.attention || 0,
+            sign: card.sign || '',
+            level_info: {
+                current_level: levelInfo.current_level || 0,
+                current_min: levelInfo.current_min || 0,
+                current_exp: levelInfo.current_exp || 0,
+                next_exp: levelInfo.next_exp || 0
+            },
+            pendant: {
+                pid: 0,
+                name: '',
+                image: '',
+                expire: 0,
+                image_enhance: '',
+                image_enhance_frame: ''
+            },
+            nameplate: {
+                nid: 0,
+                name: '',
+                image: '',
+                image_small: '',
+                level: '',
+                condition: ''
+            },
+            official_verify: {
+                type: officialVerify.type || -1,
+                desc: officialVerify.desc || ''
+            },
+            vip: {
+                vipType: vipInfo.vipType || 0,
+                vipDueDate: vipInfo.vipDueDate || 0,
+                dueRemark: '',
+                accessStatus: 0,
+                vipStatus: vipInfo.vipStatus || 0,
+                vipStatusWarn: '',
+                themeType: 0,
+                label: {
+                    path: '',
+                    text: vipInfo.label ? (vipInfo.label.text || '') : '',
+                    label_theme: vipInfo.label ? (vipInfo.label.label_theme || '') : '',
+                    text_color: '',
+                    bg_style: 0,
+                    bg_color: '',
+                    border_color: ''
+                }
+            },
+            silence: 0,
+            end_time: 0,
+            silence_url: '',
+            likes: { like_num: 0, skr_tip: '该页面由哔哩漫游修复' },
+            pr_info: {},
+            relation: { status: 1 },
+            is_deleted: 0,
+            honours: { colour: { dark: '#CE8620', normal: '#F0900B' }, tags: null },
+            profession: {}
+        },
+        images: {
+            imgUrl: face || 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
+            night_imgurl: face || 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
+            has_garb: true,
+            goods_available: true
+        },
+        live: {
+            roomStatus: 0,
+            roundStatus: 0,
+            liveStatus: 0,
+            url: '',
+            title: '',
+            cover: '',
+            online: 0,
+            roomid: 0,
+            broadcast_type: 0,
+            online_hidden: 0,
+            link: ''
+        },
+        archive: {
+            order: [
+                { title: '最新发布', value: 'pubdate' },
+                { title: '最多播放', value: 'click' }
+            ],
+            count: 9999,
+            item: []
+        },
+        series: { item: [] },
+        play_game: { count: 0, item: [] },
+        article: { count: 0, item: [], lists_count: 0, lists: [] },
+        season: { count: 0, item: [] },
+        coin_archive: { count: 0, item: [] },
+        like_archive: { count: 0, item: [] },
+        audios: { count: 0, item: [] },
+        favourite2: { count: 0, item: [] },
+        comic: { count: 0, item: [] },
+        ugc_season: { count: 0, item: [] },
+        cheese: { count: 0, item: [] },
+        fans_effect: {},
+        tab2: [
+            { title: '动态', param: 'dynamic' },
+            { title: '投稿', param: 'contribute', items: [{ title: '视频', param: 'video' }] }
+        ]
+    };
 
     return {
         code: 0,
         message: '0',
         ttl: 1,
-        data: {
-            isLogin: false,
-            mid: parseInt(mid),
-            card: {
-                mid: String(mid),
-                name: card.name || '',
-                approve: false,
-                sex: card.sex || '保密',
-                rank: card.rank || '0',
-                face: card.face || '',
-                DisplayRank: '0',
-                regtime: 0,
-                spacesta: 0,
-                birthday: '',
-                place: '',
-                description: '',
-                article: 0,
-                attentions: [],
-                fans: card.fans || 0,
-                friend: card.friend || 0,
-                attention: card.attention || 0,
-                sign: card.sign || '',
-                level_info: {
-                    current_level: levelInfo.current_level || 0,
-                    current_min: levelInfo.current_min || 0,
-                    current_exp: levelInfo.current_exp || 0,
-                    next_exp: levelInfo.next_exp || 0
-                },
-                pendant: {
-                    pid: 0,
-                    name: '',
-                    image: '',
-                    expire: 0,
-                    image_enhance: '',
-                    image_enhance_frame: ''
-                },
-                nameplate: {
-                    nid: 0,
-                    name: '',
-                    image: '',
-                    image_small: '',
-                    level: '',
-                    condition: ''
-                },
-                official_verify: {
-                    type: officialVerify.type || -1,
-                    desc: officialVerify.desc || ''
-                },
-                vip: {
-                    vipType: vipInfo.vipType || 0,
-                    vipDueDate: vipInfo.vipDueDate || 0,
-                    dueRemark: '',
-                    accessStatus: 0,
-                    vipStatus: vipInfo.vipStatus || 0,
-                    vipStatusWarn: '',
-                    themeType: 0,
-                    label: {
-                        path: '',
-                        text: vipInfo.label?.text || '',
-                        label_theme: vipInfo.label?.label_theme || '',
-                        text_color: '',
-                        bg_style: 0,
-                        bg_color: '',
-                        border_color: ''
-                    }
-                },
-                silence: 0,
-                is_deleted: 0,
-                // 标记为漫游修复
-                honours: {},
-                profession: {}
-            },
-            space: {
-                s_img: card.face || '',
-                l_img: card.face || ''
-            },
-            following: false,
-            archive_count: 0,
-            article_count: 0,
-            follower: card.fans || 0
-        }
+        data: data
     };
 }
 
