@@ -93,14 +93,14 @@ try {
         // BV 模式: 优先从路径直接提取
         const directUrl = extractBvUrl(shortPath);
         if (directUrl) {
-            obj.data.content = content.replace(shortLinkRe, directUrl);
+            obj.data.content = content.replace(shortLinkRe, stripTracking(directUrl));
             $done({ body: JSON.stringify(obj) });
             return;
         }
         // 随机短码 → 跟随重定向获取 BV 链接
         resolveRedirect(shortPath, resolvedUrl => {
             if (resolvedUrl) {
-                obj.data.content = content.replace(shortLinkRe, resolvedUrl);
+                obj.data.content = content.replace(shortLinkRe, stripTracking(resolvedUrl));
             }
             $done({ body: JSON.stringify(obj) });
         });
@@ -174,6 +174,30 @@ function resolveRedirect(shortPath, callback) {
     } else {
         done(null);
     }
+}
+
+/**
+ * 去除 URL 中的追踪参数（spm_id_from, share_source 等）
+ */
+function stripTracking(url) {
+    if (!url || typeof url !== 'string') return url;
+    // 去掉 ? 和 # 之后的追踪参数，但保留合法的路径参数如 ?p=2
+    // B站追踪参数特征：spm_id_from, share_source, share_medium, share_plat,
+    // share_session_id, share_tag, unique_k, from_spmid, from=, trackid=, ts= 等
+    const idx = url.indexOf('?');
+    if (idx === -1) return url;
+    const base = url.slice(0, idx);
+    const qs = url.slice(idx + 1);
+    const keep = [];
+    const trackingKeys = /^(spm_id_from|share_source|share_medium|share_plat|share_session_id|share_tag|unique_k|from_spmid|from|trackid|ts|timestamp|from_source|broadcast_type|h5_buvid|csrfsource|csrftoken|gaia_source|gaia_vid)$/;
+    for (const param of qs.split('&')) {
+        const eq = param.indexOf('=');
+        const key = eq > 0 ? param.slice(0, eq) : param;
+        if (!trackingKeys.test(key)) {
+            keep.push(param);
+        }
+    }
+    return keep.length > 0 ? base + '?' + keep.join('&') : base;
 }
 
 /**
