@@ -27,6 +27,8 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 [Argument]
 area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
+pure = select,"all","feed","search","detail","dynamic","live","comment",tag=净化功能,desc=过滤B站广告和推广内容
+space = switch,false,tag=空间修复,desc=修复被限制的用户空间
 
 [Script]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/view\/v\d\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=AreaUnlock, argument=[{area}]
@@ -35,6 +37,16 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/tv\/playurl\? sc
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\/ogv\/playurl\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=IntlPlayURL, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=Search, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_long_link.js, requires-body=true, tag=URLClean, argument=[{mode}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/index\/top\/feed script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyFeed, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/popular script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyPopular, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/search script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifySearch, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifySearchV2, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/view script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyDetail, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/polymer\/web-dynamic script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyDynamic, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/xlive script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyLive, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyReply, argument=[{pure}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFix, argument=[{space}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
 
 [MITM]
 hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net
