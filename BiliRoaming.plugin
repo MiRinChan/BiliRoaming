@@ -45,7 +45,8 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/v
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/polymer\/web-dynamic script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyDynamic, argument=[{pure}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/xlive script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyLive, argument=[{pure}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyReply, argument=[{pure}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFix, argument=[{space}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
 
 [MITM]

@@ -13,12 +13,17 @@
  *   - card.status: -1 -> 1       恢复被屏蔽用户（若数据存在）
  *   - badge 文本中去掉受限/限定标记
  *
+ * 注销账号修复 (code: -404):
+ *   参照 Xposed BiliRoaming 的 fixSpace 逻辑，
+ *   通过 account.bilibili.com/api/member/getCardByMid 获取用户基础信息，
+ *   构造可用的空间响应
+ *
  * 参数 (argument):
  *   space=true   启用空间修复
  *   space=false  不处理（默认关闭）
  *
  * 适用于: Loon, Surge, Quantumult X
- * Update: 2026
+ * Update: 2026-06-24
  */
 
 // === 解析参数 ===
@@ -33,70 +38,243 @@ if (!body || !ENABLED) {
     return;
 }
 
+let obj;
 try {
-    let obj = JSON.parse(body);
-
-    // 用户信息
-    if (url.includes('/space/acc/info')) {
-        obj = fixAccInfo(obj);
-    }
-
-    // 用户视频列表
-    if (url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search')) {
-        obj = fixSpaceArc(obj);
-    }
-
-    // 用户动态
-    if (url.includes('/community-service') && url.includes('/user/feed')) {
-        obj = fixSpaceFeed(obj);
-    }
-
-    $done({ body: JSON.stringify(obj) });
-
+    obj = JSON.parse(body);
 } catch (e) {
-    console.log(`BiliRoaming space_fix error: ${e}`);
+    console.log(`BiliRoaming space_fix parse error: ${e}`);
     $done({});
+    return;
 }
+
+// 用户信息
+if (url.includes('/space/acc/info')) {
+    fixAccInfo(obj, url, (fixedObj) => {
+        $done({ body: JSON.stringify(fixedObj) });
+    });
+    return;
+}
+
+// 用户视频列表
+if (url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search')) {
+    obj = fixSpaceArc(obj);
+}
+
+// 用户动态
+if (url.includes('/community-service') && url.includes('/user/feed')) {
+    obj = fixSpaceFeed(obj);
+}
+
+$done({ body: JSON.stringify(obj) });
 
 /**
  * 修复用户信息
  * 1. 被区域限制的用户 → 去掉 area_limit 标记
  * 2. 被封禁但数据还在的用户 → 恢复 status
+ * 3. 已注销用户 (code: -404) → 通过 getCardByMid 恢复基础信息
  */
-function fixAccInfo(obj) {
-    if (!obj) return obj;
+function fixAccInfo(obj, url, done) {
+    if (!obj) return done(obj);
 
-    // 如果服务器返回 -404（用户完全不存在），MITM 无法恢复
-    if (obj.code !== 0) return obj;
+    // 正常响应 (code === 0): 修复字段
+    if (obj.code === 0) {
+        const data = obj.data;
+        if (!data) return done(obj);
 
-    const data = obj.data;
-    if (!data) return obj;
+        if (data.card) {
+            fixAreaLimit(data.card);
 
-    if (data.card) {
-        fixAreaLimit(data.card);
+            // 恢复被标记为 ban 的用户（如果实际数据存在）
+            if (data.card.status === -1 && data.card.mid && data.card.mid > 0) {
+                data.card.status = 1;
+            }
 
-        // 恢复被标记为 ban 的用户（如果实际数据存在）
-        if (data.card.status === -1 && data.card.mid && data.card.mid > 0) {
-            data.card.status = 1;
+            // 修复 official_verify 被屏蔽的情况
+            if (data.card.official_verify === -1) {
+                data.card.official_verify = 1;
+            }
+
+            // 去掉受限相关 badge
+            if (data.card.badge) {
+                data.card.badge = data.card.badge.replace(/[受僅限定][区区]?/g, '');
+            }
         }
 
-        // 修复 official_verify 被屏蔽的情况
-        if (data.card.official_verify === -1) {
-            data.card.official_verify = 1;
+        // 修复空间头图
+        if (data.space && data.space.s_img) {
+            fixAreaLimit(data.space);
         }
 
-        // 去掉受限相关 badge
-        if (data.card.badge) {
-            data.card.badge = data.card.badge.replace(/[受僅限定][区区]?/g, '');
-        }
+        return done(obj);
     }
 
-    // 修复空间头图
-    if (data.space && data.space.s_img) {
-        fixAreaLimit(data.space);
+    // 已注销/封禁用户 (code: -404): 参照 Xposed fixSpace 逻辑
+    if (obj.code === -404) {
+        const mid = extractMid(url);
+        if (!mid) return done(obj);
+
+        // 尝试通过 account.bilibili.com 获取用户基础信息
+        // getCardByMid 对已注销账号仍然可能返回数据
+        const cardUrl = `https://account.bilibili.com/api/member/getCardByMid?mid=${mid}`;
+
+        if (typeof $httpClient !== 'undefined') {
+            // Surge / Loon / Stash
+            $httpClient.get(cardUrl, (error, response, data) => {
+                if (!error && data) {
+                    try {
+                        const cardResp = JSON.parse(data);
+                        if (cardResp.code === 0 && cardResp.card) {
+                            obj = buildFakeAccInfo(mid, cardResp.card);
+                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
+                        }
+                    } catch (e) {
+                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
+                    }
+                }
+                done(obj);
+            });
+            return;
+        }
+
+        if (typeof $task !== 'undefined' && typeof $task.fetch === 'function') {
+            // Quantumult X
+            $task.fetch(cardUrl).then(
+                (response) => {
+                    try {
+                        const cardResp = JSON.parse(response.body);
+                        if (cardResp.code === 0 && cardResp.card) {
+                            obj = buildFakeAccInfo(mid, cardResp.card);
+                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
+                        }
+                    } catch (e) {
+                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
+                    }
+                    done(obj);
+                },
+                (err) => {
+                    console.log(`BiliRoaming space_fix fetch error: ${err}`);
+                    done(obj);
+                }
+            );
+            return;
+        }
+
+        // 无 HTTP 客户端可用 (如 Node.js 测试环境): 直接透传
+        console.log(`BiliRoaming space_fix: no HTTP client available for -404 fix, mid=${mid}`);
     }
 
-    return obj;
+    // 其他错误码: 透传
+    return done(obj);
+}
+
+/**
+ * 从 getCardByMid 响应构建 acc/info 格式的空间数据
+ * 参照 Xposed BiliRoaming BiliRoamingApi.getSpace() 的逻辑
+ */
+function buildFakeAccInfo(mid, card) {
+    const levelInfo = card.level_info || {};
+    const officialVerify = card.official_verify || {};
+    const vipInfo = card.vip || {};
+
+    return {
+        code: 0,
+        message: '0',
+        ttl: 1,
+        data: {
+            isLogin: false,
+            mid: parseInt(mid),
+            card: {
+                mid: String(mid),
+                name: card.name || '',
+                approve: false,
+                sex: card.sex || '保密',
+                rank: card.rank || '0',
+                face: card.face || '',
+                DisplayRank: '0',
+                regtime: 0,
+                spacesta: 0,
+                birthday: '',
+                place: '',
+                description: '',
+                article: 0,
+                attentions: [],
+                fans: card.fans || 0,
+                friend: card.friend || 0,
+                attention: card.attention || 0,
+                sign: card.sign || '',
+                level_info: {
+                    current_level: levelInfo.current_level || 0,
+                    current_min: levelInfo.current_min || 0,
+                    current_exp: levelInfo.current_exp || 0,
+                    next_exp: levelInfo.next_exp || 0
+                },
+                pendant: {
+                    pid: 0,
+                    name: '',
+                    image: '',
+                    expire: 0,
+                    image_enhance: '',
+                    image_enhance_frame: ''
+                },
+                nameplate: {
+                    nid: 0,
+                    name: '',
+                    image: '',
+                    image_small: '',
+                    level: '',
+                    condition: ''
+                },
+                official_verify: {
+                    type: officialVerify.type || -1,
+                    desc: officialVerify.desc || ''
+                },
+                vip: {
+                    vipType: vipInfo.vipType || 0,
+                    vipDueDate: vipInfo.vipDueDate || 0,
+                    dueRemark: '',
+                    accessStatus: 0,
+                    vipStatus: vipInfo.vipStatus || 0,
+                    vipStatusWarn: '',
+                    themeType: 0,
+                    label: {
+                        path: '',
+                        text: vipInfo.label?.text || '',
+                        label_theme: vipInfo.label?.label_theme || '',
+                        text_color: '',
+                        bg_style: 0,
+                        bg_color: '',
+                        border_color: ''
+                    }
+                },
+                silence: 0,
+                is_deleted: 0,
+                // 标记为漫游修复
+                honours: {},
+                profession: {}
+            },
+            space: {
+                s_img: card.face || '',
+                l_img: card.face || ''
+            },
+            following: false,
+            archive_count: 0,
+            article_count: 0,
+            follower: card.fans || 0
+        }
+    };
+}
+
+/**
+ * 从 URL 中提取 mid 参数
+ */
+function extractMid(url) {
+    // 匹配 mid= 或 vmid= 参数
+    const midMatch = url.match(/[?&](?:mid|vmid)=(\d+)/);
+    if (midMatch) return midMatch[1];
+
+    // 匹配路径中的 mid (space.bilibili.com/{mid})
+    // URL 格式: .../x/space/acc/info?mid=123
+    return null;
 }
 
 /**
