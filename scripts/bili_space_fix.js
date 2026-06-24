@@ -299,8 +299,8 @@ function buildFakeAccInfo(mid, card, isV2) {
                 profession: {}
             },
             images: {
-                imgUrl: face || 'https://i0.hdslb.com/bfs/album/16b673618d911060e26f8fc95684c26bddc897c.jpg',
-                night_imgurl: face || 'https://i0.hdslb.com/bfs/album/ca79ebb2ebeee86c5634234c688b410661ea9623.png',
+                imgUrl: face || 'https://github.com/MiRinChan/BiliRoaming/releases/download/image/IMG_20260624_232433.png',
+                night_imgurl: face || 'https://github.com/MiRinChan/BiliRoaming/releases/download/image/IMG_20260624_232433.png',
                 has_garb: true,
                 goods_available: true
             },
