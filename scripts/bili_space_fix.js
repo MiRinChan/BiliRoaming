@@ -6,12 +6,12 @@
  * 拦截接口:
  *   - api.bilibili.com/x/space/acc/info             用户信息
  *   - api.bilibili.com/x/space/arc/search            用户视频列表
- *   - api.bilibili.com/x/community-service/*/user/feed  用户动态
+ *   - api.bilibili.com/x/community-service (user/feed)  用户动态
  *
  * 修改字段:
- *   - area_limit: 1 → 0         解除区域限制
- *   - card.status: -1 → 1       恢复被屏蔽用户（若数据存在）
- *   - badge 文本中去掉"受限/限定"标记
+ *   - area_limit: 1 -> 0         解除区域限制
+ *   - card.status: -1 -> 1       恢复被屏蔽用户（若数据存在）
+ *   - badge 文本中去掉受限/限定标记
  *
  * 参数 (argument):
  *   space=true   启用空间修复

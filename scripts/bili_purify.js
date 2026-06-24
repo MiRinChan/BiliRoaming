@@ -9,7 +9,7 @@
  *   - api.bilibili.com/x/web-interface/search            搜索
  *   - api.bilibili.com/x/web-interface/view              视频详情
  *   - api.bilibili.com/x/polymer/web-dynamic             动态
- *   - api.bilibili.com/xlive/...                         直播
+ *   - api.bilibili.com/xlive (various)                   直播
  *   - api.bilibili.com/x/v2/reply                        评论
  *
  * 参数 (argument):
