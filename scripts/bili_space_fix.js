@@ -336,7 +336,6 @@ function buildFakeAccInfo(mid, card, isV2) {
         }
     };
 }
-}
 
 /**
  * 从 URL 中提取 mid 参数
