@@ -1,296 +1,223 @@
 /**
- * BiliRoaming - 链接净化
+ * BiliRoaming - 链接净化（替换 b23.tv 短链接）
  *
- * 拦截 B站分享 API，根据参数把 b23.tv / bili2233.cn 短链接替换为更稳定的
- * av / BV / bangumi 页面链接。
+ * 拦截 B站分享 API，根据设置将 b23.tv 短链接替换为指定格式
  *
- * 参数:
- *   mode=short  透传（默认）
- *   mode=av     替换为 bilibili.com/video/av{oid}
- *   mode=bv     替换为 bilibili.com/video/BVxxxxx
+ * 拦截接口:
+ *   - api.bilibili.com/x/share/click (POST)   短链接生成
+ *
+ * 参数 (argument):
+ *   mode=short  不替换（默认）
+ *   mode=av     替换为 av 号链接  bilibili.com/video/av{oid}
+ *   mode=bv     替换为 BV 号链接  bilibili.com/video/BVxxxxx
+ *
+ * 适用于: Loon, Surge, Quantumult X
+ * Update: 2026
  */
-(function main() {
-    var mode = readArg('mode', 'short');
 
-    if (['short', 'av', 'bv'].indexOf(mode) === -1) {
-        console.log('BiliRoaming long_link invalid arg: ' + mode);
-        finish();
-        return;
-    }
-
-    if (mode === 'short' || !$response.body || $request.method !== 'POST') {
-        finish();
-        return;
-    }
-
-    var response = parseJson($response.body);
-    if (!response || response.code !== 0 || !response.data || !response.data.content) {
-        finish();
-        return;
-    }
-
-    var content = response.data.content;
-    var shortLink = findShortLink(content);
-    if (!shortLink) {
-        finishWithBody(response);
-        return;
-    }
-
-    if (mode === 'av') {
-        rewriteToAv(response, content, shortLink);
-        finishWithBody(response);
-        return;
-    }
-
-    rewriteToBv(response, content, shortLink, function(fixed) {
-        finishWithBody(fixed);
-    });
-})();
-
-function rewriteToAv(response, content, shortLink) {
-    var form = parseForm($request.body || '');
-    var oid = form.oid;
-    var avFromPath;
-
-    if (oid && /^\d+$/.test(String(oid))) {
-        response.data.content = replaceLink(
-            content,
-            shortLink.raw,
-            'https://www.bilibili.com/video/av' + oid
-        );
-        return;
-    }
-
-    avFromPath = shortLink.path.match(/^(av\d+)/i);
-    if (avFromPath) {
-        response.data.content = replaceLink(
-            content,
-            shortLink.raw,
-            'https://www.bilibili.com/video/' + avFromPath[1]
-        );
-    }
+// === 解析参数 ===
+// Loon: $argument 是对象 { mode: "av" }；Surge: $argument 是字符串 "mode=av"
+const MODE = readArg('mode', 'short'); // short | av | bv
+if (!['short', 'av', 'bv'].includes(MODE)) {
+    console.log(`BiliRoaming long_link invalid arg: ${MODE}`);
+    $done({});
+    return;
 }
 
-function rewriteToBv(response, content, shortLink, done) {
-    var directUrl = extractContentUrl(shortLink.path);
+const method = $request.method;
+const body = $response.body;
 
-    if (directUrl) {
-        response.data.content = replaceLink(content, shortLink.raw, stripTracking(directUrl));
-        done(response);
+if (!body || method !== 'POST') {
+    $done({});
+    return;
+}
+
+// SHORT 模式: 不处理，直接放行
+if (MODE === 'short') {
+    $done({});
+    return;
+}
+
+// AV 模式需要解析请求体获取 oid
+let reqBody = {};
+if (MODE === 'av' && $request.body) {
+    try {
+        $request.body.split('&').forEach(pair => {
+            const idx = pair.indexOf('=');
+            if (idx > 0) {
+                reqBody[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
+            }
+        });
+    } catch (_) { }
+}
+
+try {
+    let obj = JSON.parse(body);
+
+    if (obj.code !== 0 || !obj.data || !obj.data.content) {
+        $done({});
         return;
     }
 
-    resolveRedirect(shortLink.path, function(resolvedUrl) {
-        if (resolvedUrl) {
-            response.data.content = replaceLink(content, shortLink.raw, stripTracking(resolvedUrl));
+    const content = obj.data.content;
+
+    const shortLinkRe = /https?:\/\/(?:bili2233\.cn|b23\.tv)\/(\S+)/;
+    const match = content.match(shortLinkRe);
+
+    if (!match) {
+        $done({ body: JSON.stringify(obj) });
+        return;
+    }
+
+    const shortPath = match[1].replace(/[\s\?].*$/, '');
+
+    if (MODE === 'av') {
+        // AV 模式: 从请求体 oid 构造 av 号链接
+        const oid = reqBody['oid'];
+        if (oid && /^\d+$/.test(String(oid))) {
+            const avUrl = `https://www.bilibili.com/video/av${oid}`;
+            obj.data.content = content.replace(shortLinkRe, avUrl);
+            $done({ body: JSON.stringify(obj) });
+            return;
         }
-        done(response);
-    });
-}
+        // 兜底: 尝试从路径提取 av 号
+        const avFromPath = shortPath.match(/^(av\d+)/i);
+        if (avFromPath) {
+            obj.data.content = content.replace(shortLinkRe, `https://www.bilibili.com/video/${avFromPath[1]}`);
+        }
+        $done({ body: JSON.stringify(obj) });
+        return;
+    }
 
-function findShortLink(content) {
-    var match = String(content).match(/https?:\/\/(?:bili2233\.cn|b23\.tv)\/(\S+)/);
-    var raw;
-    var path;
+    if (MODE === 'bv') {
+        // BV 模式: 优先从路径直接提取
+        const directUrl = extractBvUrl(shortPath);
+        if (directUrl) {
+            obj.data.content = content.replace(shortLinkRe, stripTracking(directUrl));
+            $done({ body: JSON.stringify(obj) });
+            return;
+        }
+        // 随机短码 → 跟随重定向获取 BV 链接
+        resolveRedirect(shortPath, resolvedUrl => {
+            if (resolvedUrl) {
+                obj.data.content = content.replace(shortLinkRe, stripTracking(resolvedUrl));
+            }
+            $done({ body: JSON.stringify(obj) });
+        });
+        return;
+    }
 
-    if (!match) return null;
+    $done({ body: JSON.stringify(obj) });
 
-    raw = match[0];
-    path = match[1].replace(/[\s?].*$/, '');
-    path = path.replace(/[)\]}>，。！？、,.!?]+$/, '');
-
-    return {
-        raw: raw,
-        path: path
-    };
-}
-
-function replaceLink(content, rawLink, replacement) {
-    return String(content).replace(rawLink, replacement);
+} catch (e) {
+    console.log(`BiliRoaming long_link error: ${e}`);
+    $done({});
 }
 
 /**
- * 从短路径直接提取 BV/AV/SS/EP 页面链接。
+ * 从短路径直接提取 BV/AV/SS/EP 链接（BV 模式用）
  */
-function extractContentUrl(shortPath) {
-    var match = shortPath.match(/^(BV[A-Za-z0-9]{10})/);
-    if (match) return 'https://www.bilibili.com/video/' + match[1];
+function extractBvUrl(shortPath) {
+    const bvMatch = shortPath.match(/^(BV[A-Za-z0-9]{10})/);
+    if (bvMatch) return `https://www.bilibili.com/video/${bvMatch[1]}`;
 
-    match = shortPath.match(/^(av\d+)/i);
-    if (match) return 'https://www.bilibili.com/video/' + match[1];
+    const avMatch = shortPath.match(/^(av\d+)/i);
+    if (avMatch) return `https://www.bilibili.com/video/${avMatch[0]}`;
 
-    match = shortPath.match(/^(ss\d+)/i);
-    if (match) return 'https://www.bilibili.com/bangumi/play/' + match[1];
+    const ssMatch = shortPath.match(/^(ss\d+)/i);
+    if (ssMatch) return `https://www.bilibili.com/bangumi/play/${ssMatch[1]}`;
 
-    match = shortPath.match(/^(ep\d+)/i);
-    if (match) return 'https://www.bilibili.com/bangumi/play/' + match[1];
+    const epMatch = shortPath.match(/^(ep\d+)/i);
+    if (epMatch) return `https://www.bilibili.com/bangumi/play/${epMatch[1]}`;
 
     return null;
 }
 
 /**
- * HTTP HEAD 跟随 b23.tv 重定向。没有可用 HTTP runtime 时保持原文。
+ * HTTP HEAD 跟随 b23.tv 重定向（BV 模式兜底）
+ * 兼容 Surge ($httpClient)、Loon ($httpClient)、Quantumult X ($task)
  */
 function resolveRedirect(shortPath, callback) {
-    var url = 'https://b23.tv/' + shortPath;
-    var done = once(callback);
-    var timeout = setTimeout(function() {
-        done(null);
+    const url = `https://b23.tv/${shortPath}`;
+    let settled = false;
+
+    // 3 秒超时兜底，防止请求挂起导致响应阻塞
+    const timeout = setTimeout(() => {
+        if (!settled) { settled = true; callback(null); }
     }, 3000);
 
-    function settle(url) {
-        clearTimeout(timeout);
-        done(url);
-    }
+    const done = (result) => {
+        if (!settled) { settled = true; clearTimeout(timeout); callback(result); }
+    };
 
-    if (typeof $httpClient !== 'undefined' && $httpClient.head) {
-        $httpClient.head({ url: url, 'auto-redirect': false }, function(error, response) {
-            var headers;
-            var location;
-
+    if (typeof $httpClient !== 'undefined') {
+        // Surge/Loon: 跟随重定向前捕获 Location 头
+        $httpClient.head({ url, 'auto-redirect': false }, (error, response) => {
             if (!error && response) {
-                headers = response.headers || {};
-                location = headers.Location || headers.location;
-                if (!location && response.status === 302 && response.url && response.url !== url) {
-                    location = response.url;
-                }
+                const loc = (response.headers && (response.headers.Location || response.headers.location))
+                    || (response.status === 302 && response.url && response.url !== url && response.url);
+                if (loc) return done(loc);
             }
-
-            settle(location || null);
+            done(null);
         });
-        return;
-    }
-
-    if (typeof $task !== 'undefined' && $task.fetch) {
-        $task.fetch({ url: url, method: 'HEAD' }).then(
-            function(response) {
-                var headers = response.headers || {};
-                settle(headers.Location || headers.location || null);
+    } else if (typeof $task !== 'undefined') {
+        // Quantumult X
+        $task.fetch({ url, method: 'HEAD' }).then(
+            response => {
+                const loc = response.headers?.Location || response.headers?.location;
+                done(loc || null);
             },
-            function() {
-                settle(null);
+            () => {
+                done(null);
             }
         );
-        return;
+    } else {
+        done(null);
     }
-
-    settle(null);
 }
 
 /**
- * 保留分页和时间戳参数，去掉分享追踪参数，并附加哔哩漫游处理标记。
+ * 去除 URL 中的追踪参数
+ * 参照 Xposed 模块 ShareHook.transformUrl() — 使用允许清单而非屏蔽清单:
+ * 只保留 p (分页) 和 t (时间戳), start_progress (毫秒) 转换为 t (秒)
+ * 最后附加 unique_k=2333 作为哔哩漫游处理标记
  */
 function stripTracking(url) {
-    var splitAt;
-    var base;
-    var query;
-    var parts;
-    var keep = [];
-    var i;
-    var param;
-    var eqAt;
-    var key;
-    var value;
-
     if (!url || typeof url !== 'string') return url;
-
-    splitAt = url.indexOf('?');
-    if (splitAt === -1) return url + '?unique_k=2333';
-
-    base = url.slice(0, splitAt);
-    query = url.slice(splitAt + 1);
-    parts = query.split('&');
-
-    for (i = 0; i < parts.length; i++) {
-        param = parts[i];
-        eqAt = param.indexOf('=');
-        key = eqAt > 0 ? param.slice(0, eqAt) : param;
-
+    var idx = url.indexOf('?');
+    if (idx === -1) return url + '?unique_k=2333';
+    var base = url.slice(0, idx);
+    var qs = url.slice(idx + 1);
+    var keep = [];
+    var parts = qs.split('&');
+    for (var i = 0; i < parts.length; i++) {
+        var param = parts[i];
+        var eq = param.indexOf('=');
+        var key = eq > 0 ? param.slice(0, eq) : param;
         if (key === 'p' || key === 't') {
             keep.push(param);
         } else if (key === 'start_progress') {
-            value = eqAt > 0 ? parseInt(param.slice(eqAt + 1), 10) : 0;
-            if (!isNaN(value) && value > 0) {
-                keep.push('t=' + Math.floor(value / 1000));
+            // start_progress 是毫秒值，转换为秒级 t 参数
+            var val = eq > 0 ? parseInt(param.slice(eq + 1), 10) : 0;
+            if (!isNaN(val) && val > 0) {
+                keep.push('t=' + Math.floor(val / 1000));
             }
         }
     }
-
     keep.push('unique_k=2333');
     return base + '?' + keep.join('&');
 }
 
-function parseForm(body) {
-    var result = {};
-    var pairs;
-    var i;
-    var pair;
-    var eqAt;
-    var key;
-    var value;
-
-    if (!body) return result;
-
-    try {
-        pairs = String(body).split('&');
-        for (i = 0; i < pairs.length; i++) {
-            pair = pairs[i];
-            eqAt = pair.indexOf('=');
-            if (eqAt <= 0) continue;
-
-            key = decodeURIComponent(pair.slice(0, eqAt));
-            value = decodeURIComponent(pair.slice(eqAt + 1).replace(/\+/g, ' '));
-            result[key] = value;
-        }
-    } catch (_) {
-        return {};
-    }
-
-    return result;
-}
-
-function parseJson(body) {
-    try {
-        return JSON.parse(body);
-    } catch (error) {
-        console.log('BiliRoaming long_link parse error: ' + error);
-        return null;
-    }
-}
-
+/**
+ * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
+ */
 function readArg(key, def) {
-    var match;
-
-    if (typeof $argument === 'object' && $argument && hasOwn($argument, key)) {
-        return $argument[key];
-    }
-
+    if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
     if (typeof $argument === 'string') {
-        match = $argument.match(new RegExp(key + '=([^&]*)'));
-        if (match) return match[1];
-        if ($argument && $argument.indexOf('=') === -1) return $argument;
+        const m = $argument.match(new RegExp(key + '=([^&]*)'));
+        if (m) return m[1];
+        // Surge [{key}] template passes raw value without key= prefix
+        if ($argument && !$argument.includes('=')) return $argument;
     }
-
     return def;
-}
-
-function hasOwn(obj, key) {
-    return Object.prototype.hasOwnProperty.call(obj, key);
-}
-
-function once(callback) {
-    var called = false;
-    return function(value) {
-        if (called) return;
-        called = true;
-        callback(value);
-    };
-}
-
-function finishWithBody(obj) {
-    $done({ body: JSON.stringify(obj) });
-}
-
-function finish() {
-    $done({});
 }
