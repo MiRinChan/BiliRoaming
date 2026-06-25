@@ -108,9 +108,19 @@ function fixAccInfo(obj, url, done) {
                 data.card.official_verify = 1;
             }
 
-            // 去掉受限相关 badge
+            // 去掉受限相关 badge / description / sign
             if (data.card.badge) {
                 data.card.badge = data.card.badge.replace(/[受僅限定][区区]?/g, '');
+            }
+            if (data.card.description) {
+                data.card.description = data.card.description.replace(/[受僅限定][区区]?/g, '');
+            }
+            if (data.card.sign) {
+                data.card.sign = data.card.sign.replace(/[受僅限定][区区]?/g, '');
+            }
+            // 规范化 mid 类型（确保为字符串，兼容新版 API 返回数字）
+            if (data.card.mid !== undefined && data.card.mid !== null) {
+                data.card.mid = String(data.card.mid);
             }
         }
 

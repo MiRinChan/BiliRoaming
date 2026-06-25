@@ -99,7 +99,12 @@ try {
 
 /**
  * 净化首页推荐
- * 移除: is_ad 广告、banner_item 横幅、operation_card 运营卡片、card_type ad
+ * 移除: is_ad 广告、banner_item 横幅、operation_card 运营卡片
+ *
+ * 参照 Xposed 模块 PegasusHook — 通过 card_goto / card_type / goto 三字段
+ * 匹配 "ad", "cm", "cm_v2" 来检测广告，而非仅检查 is_ad 布尔值。
+ * B站 API 可能返回 is_ad: 1 (数字) 或 is_ad: true (布尔)，
+ * 且在较新版本中广告主要通过 card_goto: "cm" 标识。
  */
 function purifyFeed(obj) {
     const data = obj.data;
@@ -108,8 +113,8 @@ function purifyFeed(obj) {
     if (Array.isArray(data)) {
         obj.data = data.filter(item => {
             if (!item) return false;
-            // 移除广告卡片
-            if (item.is_ad === true || item.card_type === 'ad') return false;
+            // 广告检测: is_ad 真值 或 card_goto/card_type/goto 匹配 ad/cm
+            if (isAdItem(item)) return false;
             // 移除 banner 卡片
             if (item.banner_item || item.card_goto === 'banner') return false;
 
@@ -120,11 +125,6 @@ function purifyFeed(obj) {
             delete item['operation_card'];
             delete item['rcmd_reason'];
 
-            // 清理 card_type 中的非标准类型
-            if (item.card_type && !['video', 'normal', 'ugc', 'pgc'].includes(item.card_type)) {
-                return false;
-            }
-
             return true;
         });
     }
@@ -132,7 +132,7 @@ function purifyFeed(obj) {
     if (data.item && Array.isArray(data.item)) {
         data.item = data.item.filter(item => {
             if (!item) return false;
-            if (item.is_ad === true || item.card_type === 'ad') return false;
+            if (isAdItem(item)) return false;
             if (item.banner_item || item.card_goto === 'banner') return false;
             delete item['ad_info'];
             delete item['ad_index'];
@@ -147,7 +147,7 @@ function purifyFeed(obj) {
 
 /**
  * 净化热门
- * 移除: 广告位、推广推荐理由
+ * 移除: 广告位、推广推荐理由、cm 推广卡片
  */
 function purifyPopular(obj) {
     const data = obj.data;
@@ -160,6 +160,8 @@ function purifyPopular(obj) {
             if (!item) continue;
             // 跳过广告位
             if (item.ad_index !== undefined) continue;
+            // 跳过推广卡片 (card_goto === 'cm')
+            if (isAdItem(item)) continue;
             // 清理推广推荐理由
             if (item.rcmd_reason) {
                 const reason = String(item.rcmd_reason).replace(/[广推][告荐]/g, '');
@@ -177,7 +179,9 @@ function purifyPopular(obj) {
 
 /**
  * 净化搜索
- * 移除: 推广热搜、特殊推广结果、banner
+ * 移除: 推广热搜、特殊推广结果、banner、cm/special 推广卡片
+ *
+ * 参照 Xposed 模块 ProtoBufHook — 额外过滤 hasCm / hasSpecial 标记的条目
  */
 function purifySearch(obj) {
     const data = obj.data;
@@ -187,7 +191,7 @@ function purifySearch(obj) {
     if (data.hot_search && Array.isArray(data.hot_search)) {
         data.hot_search = data.hot_search.filter(h => {
             if (!h) return false;
-            return !(h.is_promoted === true || h.promote === true);
+            return !(h.is_promoted === true || h.is_promoted === 1 || h.promote === true || h.promote === 1);
         });
     }
 
@@ -198,12 +202,17 @@ function purifySearch(obj) {
             const item = resultList[i];
             if (!item) { resultList.splice(i, 1); continue; }
             // 移除 special_type 推广
-            if (item.special_type === 1 || item.is_ad === true) {
+            if (item.special_type === 1 || isAdItem(item)) {
                 resultList.splice(i, 1);
                 continue;
             }
-            // 移除 gooto=game/shop/live 等推广类型
-            if (item.goto && ['game', 'shop', 'ad'].includes(item.goto)) {
+            // 移除 cm/special 标记的推广卡片 (Xposed ProtoBufHook)
+            if (item.card_goto === 'cm' || item.has_cm || item.hasCm || item.has_special || item.hasSpecial) {
+                resultList.splice(i, 1);
+                continue;
+            }
+            // 移除 gooto=game/shop/ad/cm 等推广类型
+            if (item.goto && ['game', 'shop', 'ad', 'cm'].includes(item.goto)) {
                 resultList.splice(i, 1);
                 continue;
             }
@@ -247,9 +256,11 @@ function purifyDetail(obj) {
     if (Array.isArray(data.relates)) {
         data.relates = data.relates.filter(r => {
             if (!r) return false;
-            // 过滤番剧/游戏/课程等非视频推荐
-            const go = r.goto || r.card_type;
-            if (go && ['pgc', 'game', 'shop', 'course', 'activity'].includes(go)) return false;
+            // 过滤番剧/游戏/课程/cm 等非视频推荐
+            const go = r.goto || r.card_type || r.card_goto;
+            if (go && ['pgc', 'game', 'shop', 'course', 'activity', 'ad', 'cm'].includes(go)) return false;
+            // 推广卡片通用检测
+            if (isAdItem(r)) return false;
             return true;
         });
     }
@@ -306,7 +317,9 @@ function purifyDynamic(obj) {
                 // type 1 + orig_type 64 = 专栏推广
                 return false;
             }
-            if (desc.ad || desc.is_ad) return false;
+            // 广告检测: desc.ad / desc.is_ad 真值 或 card_goto 匹配
+            if (desc.ad || desc.is_ad || desc.is_ad === 1) return false;
+            if (desc.card_goto && ['ad', 'cm', 'cm_v2'].includes(desc.card_goto)) return false;
 
             // 移除屏蔽内容（如充电专属）
             if (card.blocked || desc.status === -1) return false;
@@ -417,6 +430,34 @@ function purifyComment(obj) {
     }
 
     return obj;
+}
+
+/**
+ * 通用广告/推广卡片检测
+ * 参照 Xposed 模块 PegasusHook — 通过 card_goto / card_type / goto 三字段
+ * 匹配 "ad", "cm", "cm_v2" 来检测广告。
+ *
+ * B站 API 的 is_ad 字段可能是:
+ *   - 布尔 true (旧版)
+ *   - 数字 1   (新版 JSON)
+ * 同时较新版本主要通过 card_goto: "cm" 来标识推广内容，
+ * 而非设置 is_ad 字段。因此需要同时检查三字段。
+ */
+function isAdItem(item) {
+    if (!item || typeof item !== 'object') return false;
+
+    // is_ad 真值检测 (兼容 true / 1 / "1")
+    if (item.is_ad || item.is_ad === 1) return true;
+
+    // Xposed PegasusHook: card_goto / card_type / goto 三字段字符串匹配
+    var adTypes = ['ad', 'cm', 'cm_v2'];
+    var fields = [item.card_goto, item.card_type, item.goto];
+    for (var i = 0; i < fields.length; i++) {
+        var val = fields[i];
+        if (val && adTypes.indexOf(String(val)) !== -1) return true;
+    }
+
+    return false;
 }
 
 /**
