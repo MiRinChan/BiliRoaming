@@ -34,6 +34,7 @@ mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指�
 直播 = switch,true,tag=净化—直播,desc=过滤直播间中的浮窗广告和banner推广
 评论 = switch,true,tag=净化—评论,desc=过滤评论区中的置顶推广和蓝字引导
 评论@提及 = switch,false,tag=净化—评论@提及,desc=过滤仅包含@提及、无实质内容的评论
+弹幕 = select,"off","white","pink",tag=净化—弹幕,desc=把大会员彩色弹幕换成指定颜色
 space = switch,false,tag=空间修复,desc=修复被限制的用户空间
 
 [Script]
@@ -53,6 +54,7 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/polymer\/web-dyn
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/xlive script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyLive, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyReply, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
 http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.main\.community\.reply\.v1\.Reply\/MainList script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyGrpcReply, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
+http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuPurify, argument=[{弹幕}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
