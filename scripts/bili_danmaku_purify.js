@@ -5,6 +5,10 @@
  *
  * 拦截接口 (gRPC):
  *   - grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmSegMobile  弹幕列表
+ *   - grpc.biliapi.net/bilibili.community.service.dm.v1.DM/DmView       弹幕显示配置
+ *
+ * DmView 处理: 移除 DmColorConfig (fn=6) 颜色规则 + 关闭 dm_render_exp 渐变渲染,
+ * 确保客户端不覆盖 DmSegMobile 里的颜色修改。
  *
  * 参数:
  *   弹幕 = select,"off","white","pink",tag=净化—弹幕
@@ -39,11 +43,18 @@ if (!body || !url) {
     return;
 }
 
-if (!(url.includes('DmSegMobile') || url.includes('grpc.biliapi'))) {
+if (!(url.includes('DmSegMobile') || url.includes('DmView') || url.includes('grpc.biliapi'))) {
     $done({});
     return;
 }
 
+// DmView: 清除颜色配置, 关闭渐变渲染
+if (url.includes('DmView')) {
+    handleDmViewPurify();
+    return;
+}
+
+// DmSegMobile: 逐条替换弹幕颜色
 handleDanmakuPurify(TARGET_COLOR);
 
 /**
@@ -89,6 +100,155 @@ function handleDanmakuPurify(targetColor) {
         console.log('BiliRoaming danmaku purify error: ' + e);
         $done({});
     }
+}
+
+/**
+ * 净化 DmView: 移除 DmColorConfig 颜色规则 + 关闭 dm_render_exp 渐变
+ *
+ * 客户端根据 DmView 返回的 DmColorConfig 对弹幕应用渐变色渲染,
+ * 仅修改 DmSegMobile 中的 color 字段不足以阻止渐变效果。
+ * 需要同时清理 DmView 配置:
+ *   - fn=6 DmColorConfig: 整段移除
+ *   - fn=23 JSON 字符串: 将 "dm_render_exp":<n> 替换为 "dm_render_exp":0
+ */
+function handleDmViewPurify() {
+    try {
+        var rawBytes = getResponseBytes();
+        if (!rawBytes || rawBytes.length < 2) {
+            $done({});
+            return;
+        }
+
+        var decompressed = unwrap(rawBytes);
+        if (!decompressed || decompressed.length === 0) {
+            $done({});
+            return;
+        }
+
+        var modified = purifyDmViewConfig(decompressed);
+
+        if (modified === null) {
+            $done({});
+            return;
+        }
+
+        var output = rewrap(rawBytes, modified);
+        if (!output) {
+            $done({});
+            return;
+        }
+
+        setResponseBytes(output);
+
+    } catch (e) {
+        console.log('BiliRoaming dmview purify error: ' + e);
+        $done({});
+    }
+}
+
+/**
+ * 遍历 DmView protobuf:
+ *   - 移除 fn=6 (DmColorConfig, wt=2) 字段
+ *   - 修改 fn=23 (JSON string, wt=2) 中的 dm_render_exp 值
+ *
+ * @param {Uint8Array} buf - DmView protobuf 字节
+ * @returns {Uint8Array|null} 修改后的字节, 无变化返回 null
+ */
+function purifyDmViewConfig(buf) {
+    var off = 0;
+    var outputParts = [];
+    var changed = false;
+    var lastCopyEnd = 0;
+
+    while (off < buf.length) {
+        var tag = buf[off];
+        var fn = tag >> 3;
+        var wt = tag & 0x07;
+
+        if (fn === 6 && wt === 2) {
+            // 移除 DmColorConfig 整段 (gradient color rules)
+            if (lastCopyEnd < off) {
+                outputParts.push(buf.slice(lastCopyEnd, off));
+            }
+            off++; // skip tag
+            var lenResult = readVarint(buf, off);
+            off += lenResult[1] + Number(lenResult[0]);
+            lastCopyEnd = off;
+            changed = true;
+        } else if (fn === 23 && wt === 2) {
+            // 修改 JSON 字符串中的 dm_render_exp
+            off++;
+            var lenResult = readVarint(buf, off);
+            var jsonLen = Number(lenResult[0]);
+            var lenVarintLen = lenResult[1];
+            off += lenVarintLen;
+
+            var jsonBytes = buf.slice(off, off + jsonLen);
+            off += jsonLen;
+
+            var jsonStr = bytesToString(jsonBytes);
+            // 将 "dm_render_exp":1 或 "dm_render_exp":2 等替换为 :0
+            var newJsonStr = jsonStr.replace(/"dm_render_exp"\s*:\s*\d+/g, '"dm_render_exp":0');
+
+            if (newJsonStr !== jsonStr) {
+                if (lastCopyEnd < off - jsonLen - 1 - lenVarintLen) {
+                    outputParts.push(buf.slice(lastCopyEnd, off - jsonLen - 1 - lenVarintLen));
+                }
+                var newJsonBytes = stringToBytes(newJsonStr);
+                var newLenVarint = encodeVarint(newJsonBytes.length);
+                // tag: fn=23, wt=2 → (23<<3)|2 = 0xBA
+                outputParts.push(new Uint8Array([0xBA]));
+                outputParts.push(newLenVarint);
+                outputParts.push(newJsonBytes);
+                lastCopyEnd = off;
+                changed = true;
+            }
+        } else {
+            off = skipField(buf, off);
+        }
+    }
+
+    if (!changed) return null;
+
+    if (lastCopyEnd < buf.length) {
+        outputParts.push(buf.slice(lastCopyEnd));
+    }
+
+    // 拼接
+    var totalLen = 0;
+    for (var i = 0; i < outputParts.length; i++) totalLen += outputParts[i].length;
+    var result = new Uint8Array(totalLen);
+    var pos = 0;
+    for (var i = 0; i < outputParts.length; i++) {
+        result.set(outputParts[i], pos);
+        pos += outputParts[i].length;
+    }
+
+    console.log('BiliRoaming dmview purify: removed DmColorConfig, disabled dm_render_exp');
+    return result;
+}
+
+/**
+ * Uint8Array → ASCII string
+ * 仅用于 JSON 解析, 输入必须是 ASCII 安全字节
+ */
+function bytesToString(bytes) {
+    var str = '';
+    for (var i = 0; i < bytes.length; i++) {
+        str += String.fromCharCode(bytes[i]);
+    }
+    return str;
+}
+
+/**
+ * ASCII string → Uint8Array
+ */
+function stringToBytes(str) {
+    var bytes = new Uint8Array(str.length);
+    for (var i = 0; i < str.length; i++) {
+        bytes[i] = str.charCodeAt(i) & 0xFF;
+    }
+    return bytes;
 }
 
 /**
