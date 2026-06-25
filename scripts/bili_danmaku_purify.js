@@ -27,8 +27,12 @@
  * Update: 2026-06-25
  */
 
+// === DEBUG: always log entry ===
+console.log('[DANMAKU] ENTER: url=' + $request.url);
+
 // === 解析参数 ===
 var DANMAKU_MODE = readArg('弹幕', 'off');
+console.log('[DANMAKU] readArg(弹幕)=' + DANMAKU_MODE);
 
 var TARGET_COLOR;
 if (DANMAKU_MODE === 'white') {
@@ -36,11 +40,13 @@ if (DANMAKU_MODE === 'white') {
 } else if (DANMAKU_MODE === 'pink') {
     TARGET_COLOR = 0xFFAEC9;
 }
+console.log('[DANMAKU] TARGET_COLOR=0x' + (TARGET_COLOR ? TARGET_COLOR.toString(16) : 'NONE'));
 
 var url = $request.url;
 var body = $response.body;
 
 if (!TARGET_COLOR || !body || !url) {
+    console.log('[DANMAKU] BAIL: no target or no body/url');
     $done({});
     return;
 }
@@ -49,19 +55,25 @@ if (!TARGET_COLOR || !body || !url) {
 var IS_SEG = url.includes('DmSegMobile') || (url.includes('seg.so') && url.includes('/dm/'));
 var IS_VIEW = url.includes('DmView');
 
+console.log('[DANMAKU] IS_SEG=' + IS_SEG + ' IS_VIEW=' + IS_VIEW + ' bodyLen=' + (typeof body === 'string' ? body.length : 'notString'));
+
 if (!IS_SEG && !IS_VIEW) {
     // 兜底: grpc.biliapi 且 url 未匹配但 Script rule 已触发则按 seg 处理
     if (url.includes('grpc.biliapi')) {
         IS_SEG = true;
+        console.log('[DANMAKU] fallback: treating as seg');
     } else {
+        console.log('[DANMAKU] BAIL: url not matched');
         $done({});
         return;
     }
 }
 
 if (IS_VIEW) {
+    console.log('[DANMAKU] → handleDmViewPurify');
     handleDmViewPurify();
 } else {
+    console.log('[DANMAKU] → handleDanmakuPurify');
     handleDanmakuPurify(TARGET_COLOR);
 }
 
@@ -87,7 +99,9 @@ function handleDanmakuPurify(targetColor) {
 
         // 第一趟: 检测 colorful_src (field 5)
         var hasColorfulSrc = scanForColorfulSrc(decompressed);
+        console.log('[DANMAKU] scanForColorfulSrc=' + hasColorfulSrc + ' protobufLen=' + decompressed.length);
         if (!hasColorfulSrc) {
+            console.log('[DANMAKU] no colorful_src, pass-through');
             $done({});  // 无渐变数据, 透传
             return;
         }
