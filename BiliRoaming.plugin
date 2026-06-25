@@ -27,13 +27,6 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 [Argument]
 area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
-首页推荐 = switch,true,tag=净化—首页推荐,desc=过滤首页推荐中的广告和推广内容
-搜索 = switch,true,tag=净化—搜索,desc=过滤搜索结果中的推广、广告和banner
-视频详情 = switch,true,tag=净化—视频详情,desc=过滤视频详情中的运营卡片、广告配置和相关推广
-动态 = switch,true,tag=净化—动态,desc=过滤动态中的同城/校园标签和广告动态
-直播 = switch,true,tag=净化—直播,desc=过滤直播间中的浮窗广告和banner推广
-评论 = switch,true,tag=净化—评论,desc=过滤评论区中的置顶推广和蓝字引导
-评论@提及 = switch,false,tag=净化—评论@提及,desc=过滤仅包含@提及、无实质内容的评论
 弹幕 = select,"off","white","pink",tag=净化—弹幕,desc=把大会员彩色弹幕换成指定颜色
 space = switch,false,tag=空间修复,desc=修复被限制的用户空间
 
@@ -45,15 +38,6 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\/ogv\/view\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=IntlSeason, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=Search, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_long_link.js, requires-body=true, tag=URLClean, argument=[{mode}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/index\/top\/feed script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyFeed, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/popular script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyPopular, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/search script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifySearch, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifySearchV2, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/web-interface\/view script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyDetail, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/polymer\/web-dynamic script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyDynamic, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/xlive script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyLive, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/reply script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyReply, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
-http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.main\.community\.reply\.v1\.Reply\/MainList script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_purify.js, requires-body=true, tag=PurifyGrpcReply, argument=[{首页推荐},{搜索},{视频详情},{动态},{直播},{评论},{评论@提及}]
 http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuPurify, argument=[{弹幕}]
 http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmView script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuViewPurify, argument=[{弹幕}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v2\/dm\/list\/seg\.so script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuRestPurify, argument=[{弹幕}]
