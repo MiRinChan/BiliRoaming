@@ -28,6 +28,7 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
 space = switch,false,tag=空间修复,desc=修复被限制的用户空间
+vip_ad = switch,false,tag=净化—会员广告,desc=删除大会员广告
 
 [Script]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/pgc\/view\/v\d\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=AreaUnlock, argument=[{area}]
@@ -40,6 +41,10 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click scr
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/feed\/index script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_vip_ad_purify.js, requires-body=true, tag=VipAdFeed, argument=[{vip_ad}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/splash\/list script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_vip_ad_purify.js, requires-body=true, tag=VipAdSplash, argument=[{vip_ad}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/account\/mine script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_vip_ad_purify.js, requires-body=true, tag=VipAdMine, argument=[{vip_ad}]
+http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/resource\/show\/tab script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_vip_ad_purify.js, requires-body=true, tag=VipAdTab, argument=[{vip_ad}]
 
 [MITM]
 hostname = %APPEND% ap?.bili*.com, ap?.bili*.net, ap?.biliapi.net, grpc.biliapi.net
