@@ -27,7 +27,6 @@ DOMAIN-SUFFIX,hdslb.com,PROXY
 [Argument]
 area = switch,false,tag=番剧区域限制,desc=解除B站番剧区域限制
 mode = select,"short","av","bv",tag=链接净化,desc=替换分享链接为指定格式
-弹幕 = select,"off","white","pink",tag=净化—弹幕,desc=把大会员彩色弹幕换成指定颜色
 space = switch,false,tag=空间修复,desc=修复被限制的用户空间
 
 [Script]
@@ -38,10 +37,6 @@ http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/intl\/gateway\/v\d\/ogv\/view\/app\/season\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=IntlSeason, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/search\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_area_limit.js, requires-body=true, tag=Search, argument=[{area}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/share\/click script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_long_link.js, requires-body=true, tag=URLClean, argument=[{mode}]
-http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuPurify, argument=[{弹幕}]
-http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmView script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuViewPurify, argument=[{弹幕}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v2\/dm\/list\/seg\.so script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuRestPurify, argument=[{弹幕}]
-http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v2\/dm\/web\/seg\.so script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuWebPurify, argument=[{弹幕}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/space\/ script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceAccInfo, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/v\d\/space\? script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceV2, argument=[{space}]
 http-response ^https?:\/\/ap[pi]\.bili(bili|api)\.(com|net)\/x\/community-service script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_space_fix.js, requires-body=true, tag=SpaceFeedFix, argument=[{space}]
