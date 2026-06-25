@@ -281,7 +281,12 @@ function encodeVarint(v) {
 // ==================== DmView 弹幕配置净化 ====================
 
 /**
- * 净化 DmView: 移除 DmColorConfig (fn=6) + 关闭 dm_render_exp 渐变
+ * 净化 DmView: 移除 DmColorConfig (fn=6) + 关闭 dm_render_exp
+ *
+ * 遍历全部顶层 field:
+ *   - fn=6 wt=2 → 整段移除 (DmColorConfig)
+ *   - 任意 wt=2 → 尝试匹配 dm_render_exp, 替换后重建该 field
+ *     (不限定字段号, 适应不同版本 proto)
  */
 function handleDmViewPurify() {
     try {
@@ -299,7 +304,7 @@ function handleDmViewPurify() {
 
         var modified = purifyDmViewConfig(decompressed);
         if (modified === null) {
-            $done({});
+            $done({});  // 无变化, 透传
             return;
         }
 
@@ -318,9 +323,14 @@ function handleDmViewPurify() {
 }
 
 /**
- * 遍历 DmView protobuf:
- *   - 移除 fn=6 (DmColorConfig, wt=2)
- *   - 将 fn=23 (JSON string, wt=2) 中的 dm_render_exp 置 0
+ * DmView protobuf 净化:
+ *   - fn=6 wt=2 (DmColorConfig): 移除
+ *   - 任意 wt=2 字段: 检查是否包含 "dm_render_exp":N, 有则替换为 :0
+ *
+ * 逐 field 扫描 + 重建, 正确处理 varint 长度变化。
+ *
+ * @param {Uint8Array} buf
+ * @returns {Uint8Array|null}
  */
 function purifyDmViewConfig(buf) {
     var off = 0;
@@ -334,6 +344,7 @@ function purifyDmViewConfig(buf) {
         var wt = tag & 0x07;
 
         if (fn === 6 && wt === 2) {
+            // 移除 DmColorConfig
             if (lastCopyEnd < off) {
                 outputParts.push(buf.slice(lastCopyEnd, off));
             }
@@ -343,30 +354,37 @@ function purifyDmViewConfig(buf) {
             lastCopyEnd = off;
             changed = true;
             console.log('BiliRoaming dmview purify: removed DmColorConfig');
-        } else if (fn === 23 && wt === 2) {
+
+        } else if (wt === 2) {
+            // 字符串字段: 检查 dm_render_exp
             off++;
             var lenResult = readVarint(buf, off);
-            var jsonLen = Number(lenResult[0]);
+            var fieldLen = Number(lenResult[0]);
             var lenVarintLen = lenResult[1];
             off += lenVarintLen;
 
-            var jsonBytes = buf.slice(off, off + jsonLen);
-            off += jsonLen;
+            var fieldStart = off - 1 - lenVarintLen;  // tag 位置
+            var fieldBytes = buf.slice(off, off + fieldLen);
+            off += fieldLen;
 
-            var jsonStr = bytesToString(jsonBytes);
-            var newJsonStr = jsonStr.replace(/"dm_render_exp"\s*:\s*\d+/g, '"dm_render_exp":0');
-
-            if (newJsonStr !== jsonStr) {
-                if (lastCopyEnd < off - jsonLen - 1 - lenVarintLen) {
-                    outputParts.push(buf.slice(lastCopyEnd, off - jsonLen - 1 - lenVarintLen));
+            // 尝试作为字符串检查: 仅处理可见 ASCII 为主的字段
+            if (looksLikeAscii(fieldBytes)) {
+                var fieldStr = bytesToString(fieldBytes);
+                if (/"dm_render_exp"\s*:\s*\d+/.test(fieldStr)) {
+                    var newStr = fieldStr.replace(/"dm_render_exp"\s*:\s*\d+/g, '"dm_render_exp":0');
+                    if (newStr !== fieldStr) {
+                        if (lastCopyEnd < fieldStart) {
+                            outputParts.push(buf.slice(lastCopyEnd, fieldStart));
+                        }
+                        var newBytes = stringToBytes(newStr);
+                        outputParts.push(new Uint8Array([tag]));
+                        outputParts.push(encodeVarint(newBytes.length));
+                        outputParts.push(newBytes);
+                        lastCopyEnd = off;
+                        changed = true;
+                        console.log('BiliRoaming dmview purify: disabled dm_render_exp in fn=' + fn);
+                    }
                 }
-                var newJsonBytes = stringToBytes(newJsonStr);
-                outputParts.push(new Uint8Array([0xBA])); // fn=23, wt=2
-                outputParts.push(encodeVarint(newJsonBytes.length));
-                outputParts.push(newJsonBytes);
-                lastCopyEnd = off;
-                changed = true;
-                console.log('BiliRoaming dmview purify: disabled dm_render_exp');
             }
         } else {
             off = skipField(buf, off);
@@ -388,6 +406,20 @@ function purifyDmViewConfig(buf) {
         pos += outputParts[i].length;
     }
     return result;
+}
+
+/**
+ * 检查字节数组是否 "看起来像 ASCII 字符串"
+ * (至少 80% 的字节是可打印 ASCII, 用于快速过滤二进制字段)
+ */
+function looksLikeAscii(bytes) {
+    var printable = 0;
+    var len = Math.min(bytes.length, 64);  // 仅检查前 64 字节
+    for (var i = 0; i < len; i++) {
+        var b = bytes[i];
+        if (b >= 0x20 && b < 0x7F) printable++;
+    }
+    return (printable / len) > 0.8;
 }
 
 function bytesToString(bytes) {
