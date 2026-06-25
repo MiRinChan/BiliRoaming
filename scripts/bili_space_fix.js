@@ -1,226 +1,190 @@
 /**
- * BiliRoaming - 修复用户空间
+ * BiliRoaming - 用户空间修复
  *
- * 修复因区域限制/账号状态被隐藏或限制的用户空间数据
+ * 修复被区域限制、账号状态或注销状态影响的用户空间响应。
  *
- * 拦截接口:
- *   - api.bilibili.com/x/v2/space               新版空间 API (iOS/Android 主要入口)
- *   - api.bilibili.com/x/space/acc/info         用户信息（旧版）
- *   - api.bilibili.com/x/space?                 Xposed hook 兼容
- *   - api.bilibili.com/x/space/arc/search       用户视频列表
- *   - api.bilibili.com/x/community-service (user/feed)  用户动态
- *
- * 修复字段:
- *   - area_limit: 1 -> 0         解除区域限制
- *   - card.status: -1 -> 1       恢复被屏蔽用户（若数据存在）
- *   - badge 文本中去掉受限/限定标记
- *
- * 注销账号修复 (code: -404):
- *   参照 Xposed BiliRoaming 的 fixSpace 逻辑，
- *   1. 通过 account.bilibili.com/api/member/getCardByMid 获取用户基础信息
- *   2. 构造完整 BiliSpace 格式响应（含 setting/tab/images/archive 等字段）
- *   3. getCardByMid 不可用时降级为空卡但 code=0
- *
- * 参数 (argument):
+ * 参数:
  *   space=true   启用空间修复
- *   space=false  不处理（默认关闭）
- *
- * 适用于: Loon, Surge, Quantumult X
- * Update: 2026-06-24 v2
+ *   space=false  透传（默认）
  */
+(function main() {
+    var enabled = isEnabled(readArg('space', false));
+    var response;
+    var url = $request.url || '';
 
-// === 解析参数 ===
-const spaceRaw = readArg('space', false);
-const ENABLED = spaceRaw === true || spaceRaw === 'true' || spaceRaw === 'unlock';
+    if (!enabled || !$response.body) {
+        finish();
+        return;
+    }
 
-const url = $request.url;
-const body = $response.body;
+    response = parseJson($response.body);
+    if (!response) {
+        finish();
+        return;
+    }
 
-if (!body || !ENABLED) {
-    $done({});
-    return;
+    try {
+        if (isProfileUrl(url)) {
+            fixProfile(response, url, finishWithBody);
+            return;
+        }
+
+        if (isArchiveUrl(url)) {
+            response = fixArchive(response);
+        }
+
+        if (isFeedUrl(url)) {
+            response = fixFeed(response);
+        }
+
+        finishWithBody(response);
+    } catch (error) {
+        console.log('BiliRoaming space_fix error: ' + error);
+        finish();
+    }
+})();
+
+function isProfileUrl(url) {
+    return url.indexOf('/space/acc/info') !== -1
+        || url.indexOf('/x/space?') !== -1
+        || /\/x\/v\d+\/space\?/.test(url);
 }
 
-let obj;
-try {
-    obj = JSON.parse(body);
-} catch (e) {
-    console.log(`BiliRoaming space_fix parse error: ${e}`);
-    $done({});
-    return;
+function isArchiveUrl(url) {
+    return url.indexOf('/space/arc/search') !== -1
+        || url.indexOf('/space/wbi/arc/search') !== -1
+        || url.indexOf('/v2/space/archive') !== -1;
 }
 
-// Determine which space API we're hitting
-// /x/v2/space — unified v2 space API (iOS/Android 新版)
-// /x/space? — old Xposed hook point
-// /x/space/acc/info — user profile info (旧版)
-// /x/v2/space/archive — 视频列表 (新版，正常返回但需 area_limit fix)
-const isV2Space = url.includes('/v2/space') || url.includes('/x/space?');
-const isAccInfo = url.includes('/space/acc/info');
-const isArcSearch = url.includes('/space/arc/search') || url.includes('/space/wbi/arc/search');
-const isSpaceArchive = url.includes('/v2/space/archive') || url.includes('/space/wbi/arc/search');
-const isFeed = url.includes('/community-service') && url.includes('/user/feed');
+function isFeedUrl(url) {
+    return url.indexOf('/community-service') !== -1 && url.indexOf('/user/feed') !== -1;
+}
 
-// 用户信息 (any variant: v2, old acc/info, Xposed hook point)
-if (isV2Space || isAccInfo) {
-    fixAccInfo(obj, url, (fixedObj) => {
-        $done({ body: JSON.stringify(fixedObj) });
+function isV2ProfileUrl(url) {
+    return url.indexOf('/x/space?') !== -1 || /\/x\/v\d+\/space\?/.test(url);
+}
+
+/**
+ * 修复用户信息。
+ */
+function fixProfile(response, url, done) {
+    var mid;
+    var cardUrl;
+    var started;
+
+    if (!response) {
+        done(response);
+        return;
+    }
+
+    if (response.code === 0) {
+        fixProfileData(response.data);
+        done(response);
+        return;
+    }
+
+    if (response.code !== -404) {
+        done(response);
+        return;
+    }
+
+    mid = extractMid(url);
+    if (!mid) {
+        done(response);
+        return;
+    }
+
+    cardUrl = 'https://account.bilibili.com/api/member/getCardByMid?mid=' + encodeURIComponent(mid);
+    started = fetchText(cardUrl, 8000, function(error, body) {
+        var card = parseCard(body);
+
+        if (card) {
+            console.log('BiliRoaming space_fix: restored deactivated user ' + mid);
+            done(buildFakeAccInfo(mid, card, isV2ProfileUrl(url)));
+            return;
+        }
+
+        console.log('BiliRoaming space_fix: getCardByMid failed, fallback for ' + mid);
+        done(buildFakeAccInfo(mid, null, isV2ProfileUrl(url)));
     });
-    return;
+
+    if (!started) {
+        console.log('BiliRoaming space_fix: no HTTP client available for -404 fix, mid=' + mid);
+        done(response);
+    }
 }
 
-// 用户视频列表
-if (isArcSearch || isSpaceArchive) {
-    obj = fixSpaceArc(obj);
-}
+function fixProfileData(data) {
+    if (!data) return;
 
-// 用户动态
-if (isFeed) {
-    obj = fixSpaceFeed(obj);
-}
-
-$done({ body: JSON.stringify(obj) });
-
-/**
- * 修复用户信息
- * 1. 被区域限制的用户 → 去掉 area_limit 标记
- * 2. 被封禁但数据还在的用户 → 恢复 status
- * 3. 已注销用户 (code: -404) → 通过 getCardByMid 恢复基础信息
- */
-function fixAccInfo(obj, url, done) {
-    if (!obj) return done(obj);
-
-    // 正常响应 (code === 0): 修复字段
-    if (obj.code === 0) {
-        const data = obj.data;
-        if (!data) return done(obj);
-
-        if (data.card) {
-            fixAreaLimit(data.card);
-
-            // 恢复被标记为 ban 的用户（如果实际数据存在）
-            if (data.card.status === -1 && data.card.mid && data.card.mid > 0) {
-                data.card.status = 1;
-            }
-
-            // 修复 official_verify 被屏蔽的情况
-            if (data.card.official_verify === -1) {
-                data.card.official_verify = 1;
-            }
-
-            // 去掉受限相关 badge / description / sign
-            if (data.card.badge) {
-                data.card.badge = data.card.badge.replace(/[受僅限定][区区]?/g, '');
-            }
-            if (data.card.description) {
-                data.card.description = data.card.description.replace(/[受僅限定][区区]?/g, '');
-            }
-            if (data.card.sign) {
-                data.card.sign = data.card.sign.replace(/[受僅限定][区区]?/g, '');
-            }
-            // 规范化 mid 类型（确保为字符串，兼容新版 API 返回数字）
-            if (data.card.mid !== undefined && data.card.mid !== null) {
-                data.card.mid = String(data.card.mid);
-            }
-        }
-
-        // 修复空间头图
-        if (data.space && data.space.s_img) {
-            fixAreaLimit(data.space);
-        }
-
-        return done(obj);
+    if (data.card) {
+        fixUserCard(data.card);
     }
 
-    // 已注销/封禁用户 (code: -404): 参照 Xposed fixSpace 逻辑
-    if (obj.code === -404) {
-        const mid = extractMid(url);
-        if (!mid) return done(obj);
-
-        // 判断是 v2 空间 API (/x/v2/space) 还是旧版 (/x/space/acc/info)
-        const isV2 = url.includes('/v2/space') || url.includes('/x/space?');
-
-        // 尝试通过 account.bilibili.com 获取用户基础信息
-        // getCardByMid 对已注销账号仍然可能返回数据
-        const cardUrl = `https://account.bilibili.com/api/member/getCardByMid?mid=${mid}`;
-
-        if (typeof $httpClient !== 'undefined') {
-            // Surge / Loon / Stash
-            $httpClient.get(cardUrl, (error, response, data) => {
-                let restored = false;
-                if (!error && data) {
-                    try {
-                        const cardResp = JSON.parse(data);
-                        if (cardResp.code === 0 && cardResp.card) {
-                            obj = buildFakeAccInfo(mid, cardResp.card, isV2);
-                            restored = true;
-                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
-                        }
-                    } catch (e) {
-                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
-                    }
-                }
-                // getCardByMid 也失败时，仍构造最小响应避免客户端白屏
-                if (!restored) {
-                    obj = buildFakeAccInfo(mid, null, isV2);
-                    console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
-                }
-                done(obj);
-            });
-            return;
-        }
-
-        if (typeof $task !== 'undefined' && typeof $task.fetch === 'function') {
-            // Quantumult X
-            $task.fetch(cardUrl).then(
-                (response) => {
-                    let restored = false;
-                    try {
-                        const cardResp = JSON.parse(response.body);
-                        if (cardResp.code === 0 && cardResp.card) {
-                            obj = buildFakeAccInfo(mid, cardResp.card, isV2);
-                            restored = true;
-                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
-                        }
-                    } catch (e) {
-                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
-                    }
-                    if (!restored) {
-                        obj = buildFakeAccInfo(mid, null, isV2);
-                        console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
-                    }
-                    done(obj);
-                },
-                (err) => {
-                    console.log(`BiliRoaming space_fix fetch error: ${err}`);
-                    obj = buildFakeAccInfo(mid, null, isV2);
-                    done(obj);
-                }
-            );
-            return;
-        }
-
-        // 无 HTTP 客户端可用 (如 Node.js 测试环境): 直接透传
-        console.log(`BiliRoaming space_fix: no HTTP client available for -404 fix, mid=${mid}`);
+    if (data.space) {
+        fixAreaLimit(data.space);
     }
 
-    // 其他错误码: 透传
-    return done(obj);
+    if (data.images) {
+        fixAreaLimit(data.images);
+    }
+}
+
+function fixUserCard(card) {
+    if (!card || typeof card !== 'object') return;
+
+    fixAreaLimit(card);
+
+    if (card.status === -1 && Number(card.mid) > 0) {
+        card.status = 1;
+    }
+
+    if (card.official_verify === -1) {
+        card.official_verify = 1;
+    }
+
+    if (card.badge) card.badge = cleanLimitText(card.badge);
+    if (card.description) card.description = cleanLimitText(card.description);
+    if (card.sign) card.sign = cleanLimitText(card.sign);
+
+    if (card.mid !== undefined && card.mid !== null) {
+        card.mid = String(card.mid);
+    }
+}
+
+function parseCard(body) {
+    var response;
+
+    if (!body) return null;
+
+    try {
+        response = JSON.parse(body);
+    } catch (error) {
+        console.log('BiliRoaming space_fix card parse error: ' + error);
+        return null;
+    }
+
+    if (response && response.code === 0 && response.card) {
+        return response.card;
+    }
+
+    return null;
 }
 
 /**
- * 从 getCardByMid 响应构建空间数据
- * iOS 兼容为主，description/sign 标记对齐 Xposed getSpace()
- * @param {string} mid - 用户 mid
- * @param {object|null} card - getCardByMid 返回的 card 对象（可为 null）
- * @param {boolean} isV2 - 是否为 /x/v2/space API
+ * 从 getCardByMid 响应构建 BiliSpace 格式数据。
  */
 function buildFakeAccInfo(mid, card, isV2) {
+    var levelInfo;
+    var officialVerify;
+    var vipInfo;
+    var face;
+
     card = card || {};
-    const levelInfo = card.level_info || {};
-    const officialVerify = card.official_verify || {};
-    const vipInfo = card.vip || {};
-    const face = card.face || '';
+    levelInfo = card.level_info || {};
+    officialVerify = card.official_verify || {};
+    vipInfo = card.vip || {};
+    face = card.face || '';
 
     return {
         code: 0,
@@ -232,17 +196,40 @@ function buildFakeAccInfo(mid, card, isV2) {
             default_tab: 'video',
             is_params: true,
             setting: {
-                fav_video: 0, coins_video: 0, likes_video: 0, bangumi: 0,
-                played_game: 0, groups: 0, comic: 0, bbq: 0, dress_up: 0,
-                disable_following: 0, live_playback: 1, close_space_medal: 0,
+                fav_video: 0,
+                coins_video: 0,
+                likes_video: 0,
+                bangumi: 0,
+                played_game: 0,
+                groups: 0,
+                comic: 0,
+                bbq: 0,
+                dress_up: 0,
+                disable_following: 0,
+                live_playback: 1,
+                close_space_medal: 0,
                 only_show_wearing: 0
             },
             tab: {
-                archive: true, article: true, clip: true, album: true,
-                favorite: false, bangumi: false, coin: false, like: false,
-                community: false, dynamic: true, audios: true, shop: false,
-                mall: false, ugc_season: false, comic: false, cheese: false,
-                sub_comic: false, activity: false, series: false
+                archive: true,
+                article: true,
+                clip: true,
+                album: true,
+                favorite: false,
+                bangumi: false,
+                coin: false,
+                like: false,
+                community: false,
+                dynamic: true,
+                audios: true,
+                shop: false,
+                mall: false,
+                ugc_season: false,
+                comic: false,
+                cheese: false,
+                sub_comic: false,
+                activity: false,
+                series: false
             },
             card: {
                 mid: String(mid),
@@ -256,14 +243,12 @@ function buildFakeAccInfo(mid, card, isV2) {
                 spacesta: 0,
                 birthday: '',
                 place: '',
-                // align: description 标记
                 description: '该页面由哔哩漫游修复',
                 article: 0,
                 attentions: [],
                 fans: card.fans || 0,
                 friend: card.friend || 0,
                 attention: card.attention || 0,
-                // align: sign 标记
                 sign: '【该页面由哔哩漫游修复】' + (card.sign || ''),
                 level_info: {
                     current_level: levelInfo.current_level || 0,
@@ -272,12 +257,20 @@ function buildFakeAccInfo(mid, card, isV2) {
                     next_exp: levelInfo.next_exp || 0
                 },
                 pendant: {
-                    pid: 0, name: '', image: '', expire: 0,
-                    image_enhance: '', image_enhance_frame: ''
+                    pid: 0,
+                    name: '',
+                    image: '',
+                    expire: 0,
+                    image_enhance: '',
+                    image_enhance_frame: ''
                 },
                 nameplate: {
-                    nid: 0, name: '', image: '', image_small: '',
-                    level: '', condition: ''
+                    nid: 0,
+                    name: '',
+                    image: '',
+                    image_small: '',
+                    level: '',
+                    condition: ''
                 },
                 official_verify: {
                     type: officialVerify.type || -1,
@@ -295,17 +288,31 @@ function buildFakeAccInfo(mid, card, isV2) {
                         path: '',
                         text: vipInfo.label ? vipInfo.label.text || '' : '',
                         label_theme: vipInfo.label ? vipInfo.label.label_theme || '' : '',
-                        text_color: '', bg_style: 0, bg_color: '', border_color: ''
+                        text_color: '',
+                        bg_style: 0,
+                        bg_color: '',
+                        border_color: ''
                     }
                 },
                 silence: 0,
                 end_time: 0,
                 silence_url: '',
-                likes: { like_num: 0, skr_tip: '该页面由哔哩漫游修复' },
+                likes: {
+                    like_num: 0,
+                    skr_tip: '该页面由哔哩漫游修复'
+                },
                 pr_info: {},
-                relation: { status: 1 },
+                relation: {
+                    status: 1
+                },
                 is_deleted: 0,
-                honours: { colour: { dark: '#CE8620', normal: '#F0900B' }, tags: null },
+                honours: {
+                    colour: {
+                        dark: '#CE8620',
+                        normal: '#F0900B'
+                    },
+                    tags: null
+                },
                 profession: {}
             },
             images: {
@@ -315,9 +322,17 @@ function buildFakeAccInfo(mid, card, isV2) {
                 goods_available: true
             },
             live: {
-                roomStatus: 0, roundStatus: 0, liveStatus: 0,
-                url: '', title: '', cover: '', online: 0, roomid: 0,
-                broadcast_type: 0, online_hidden: 0, link: ''
+                roomStatus: 0,
+                roundStatus: 0,
+                liveStatus: 0,
+                url: '',
+                title: '',
+                cover: '',
+                online: 0,
+                roomid: 0,
+                broadcast_type: 0,
+                online_hidden: 0,
+                link: ''
             },
             archive: {
                 order: [
@@ -348,147 +363,207 @@ function buildFakeAccInfo(mid, card, isV2) {
 }
 
 /**
- * 从 URL 中提取 mid 参数
+ * 修复用户投稿列表。
  */
-function extractMid(url) {
-    // 匹配 mid= 或 vmid= 参数
-    const midMatch = url.match(/[?&](?:mid|vmid)=(\d+)/);
-    if (midMatch) return midMatch[1];
+function fixArchive(response) {
+    var data;
 
-    // 匹配路径中的 mid (space.bilibili.com/{mid})
-    // URL 格式: .../x/space/acc/info?mid=123
-    return null;
+    if (!response || response.code !== 0) return response;
+
+    data = response.data;
+    if (!data) return response;
+
+    visitArchiveLists(data, function(video) {
+        fixVideoItem(video);
+    });
+
+    return response;
+}
+
+function visitArchiveLists(data, visitor) {
+    var lists = [];
+    var i;
+
+    addList(lists, data.list && data.list.vlist);
+    addList(lists, data.vlist);
+    addList(lists, data.archives);
+
+    for (i = 0; i < lists.length; i++) {
+        lists[i].forEach(visitor);
+    }
+}
+
+function addList(lists, list) {
+    if (Array.isArray(list) && lists.indexOf(list) === -1) {
+        lists.push(list);
+    }
+}
+
+function fixVideoItem(video) {
+    if (!video || typeof video !== 'object') return;
+
+    fixAreaLimit(video);
+
+    if (video.badge) video.badge = cleanLimitText(video.badge);
+    if (video.title) video.title = cleanLimitTitle(video.title);
+
+    if (video.play === -1 || video.play === '--') video.play = 0;
+    if (video.danmaku === -1 || video.danmaku === '--') video.danmaku = 0;
+    if (video.video_review === -1) video.video_review = 0;
 }
 
 /**
- * 修复用户视频列表
- * 遍历每个视频，解除区域限制标记
+ * 修复用户动态。
  */
-function fixSpaceArc(obj) {
-    if (!obj || obj.code !== 0) return obj;
+function fixFeed(response) {
+    var data;
+    var items;
 
-    const data = obj.data;
-    if (!data) return obj;
+    if (!response || response.code !== 0) return response;
 
-    // 不同版本 API 的列表路径
-    const vlist = data.list?.vlist || data.vlist || data.archives;
-    if (Array.isArray(vlist)) {
-        vlist.forEach(video => {
-            fixAreaLimit(video);
+    data = response.data;
+    if (!data) return response;
 
-            // 去掉受限标记
-            if (video.badge) {
-                video.badge = video.badge.replace(/[受僅限定][区区]?/g, '');
-            }
-            if (video.title) {
-                video.title = video.title.replace(/[\[【\(（]?[受僅限定][区区]?[\]】\)）]?/g, '');
-            }
+    items = data.items || data.cards || data.list;
+    if (!Array.isArray(items)) return response;
 
-            // 恢复被屏蔽的播放数和弹幕数
-            if (video.play === -1 || video.play === '--') video.play = 0;
-            if (video.danmaku === -1 || video.danmaku === '--') video.danmaku = 0;
-            if (video.video_review === -1) video.video_review = 0;
-        });
-    }
+    items.forEach(function(item) {
+        if (!item) return;
 
-    // B站新 API 可能使用 archives 数组
-    if (Array.isArray(data.archives)) {
-        data.archives.forEach(video => {
-            fixAreaLimit(video);
-            if (video.badge) {
-                video.badge = video.badge.replace(/[受僅限定][区区]?/g, '');
-            }
-        });
-    }
+        fixAreaLimit(item);
+        if (item.badge) item.badge = cleanLimitText(item.badge);
 
-    // 如果列表为空且是区域限制导致，尝试修复（保持原样，因为真的没有数据）
-    // 但对于 area_limit=1 但 list 存在的情况，已经通过 fixAreaLimit 处理
+        if (item.modules) {
+            fixAreaLimit(item.modules.module_dynamic);
+            fixAreaLimit(item.modules.module_author);
+        }
+    });
 
-    return obj;
+    return response;
 }
 
-/**
- * 修复用户动态
- * 遍历动态卡片，解除区域限制
- */
-function fixSpaceFeed(obj) {
-    if (!obj || obj.code !== 0) return obj;
-
-    const data = obj.data;
-    if (!data) return obj;
-
-    const items = data.items || data.cards || data.list;
-    if (Array.isArray(items)) {
-        items.forEach(item => {
-            if (!item) return;
-            fixAreaLimit(item);
-
-            // 清理受限标记
-            if (item.badge) {
-                item.badge = item.badge.replace(/[受僅限定][区区]?/g, '');
-            }
-
-            // 恢复被屏蔽的动态内容
-            if (item.modules) {
-                if (item.modules.module_dynamic) {
-                    fixAreaLimit(item.modules.module_dynamic);
-                }
-                if (item.modules.module_author) {
-                    fixAreaLimit(item.modules.module_author);
-                }
-            }
-        });
-    }
-
-    return obj;
-}
-
-/**
- * 通用区域限制修复
- */
 function fixAreaLimit(obj) {
     if (!obj || typeof obj !== 'object') return;
 
-    if (Object.hasOwn(obj, 'area_limit') && obj.area_limit === 1) {
-        obj.area_limit = 0;
+    if (obj.rights && typeof obj.rights === 'object') {
+        obj.rights.area_limit = 0;
+        obj.rights.allow_dm = 1;
+        obj.rights.allow_download = 1;
     }
 
-    if (Object.hasOwn(obj, 'allow_dm') && obj.allow_dm === 0) {
-        obj.allow_dm = 1;
-    }
+    if (hasOwn(obj, 'area_limit') && obj.area_limit === 1) obj.area_limit = 0;
+    if (hasOwn(obj, 'allow_dm') && obj.allow_dm === 0) obj.allow_dm = 1;
+    if (hasOwn(obj, 'allow_download') && obj.allow_download === 0) obj.allow_download = 1;
+    if (hasOwn(obj, 'allow_comment') && obj.allow_comment === 0) obj.allow_comment = 1;
+    if (hasOwn(obj, 'allow_demand') && obj.allow_demand === 0) obj.allow_demand = 1;
+    if (hasOwn(obj, 'status') && obj.status === -1) obj.status = 1;
 
-    if (Object.hasOwn(obj, 'allow_download') && obj.allow_download === 0) {
-        obj.allow_download = 1;
-    }
-
-    if (Object.hasOwn(obj, 'allow_comment') && obj.allow_comment === 0) {
-        obj.allow_comment = 1;
-    }
-
-    if (Object.hasOwn(obj, 'allow_demand') && obj.allow_demand === 0) {
-        obj.allow_demand = 1;
-    }
-
-    if (obj.area === 'restricted' || obj.area === '') {
+    if (obj.area === 'restricted') {
         obj.area = '';
-    }
-
-    // 恢复被封禁/被删除用户的状态
-    if (Object.hasOwn(obj, 'status') && obj.status === -1) {
-        obj.status = 1;
     }
 }
 
-/**
- * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
- */
-function readArg(key, def) {
-    if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
-    if (typeof $argument === 'string') {
-        const m = $argument.match(new RegExp(key + '=([^&]*)'));
-        if (m) return m[1];
-        // Surge [{key}] template passes raw value without key= prefix
-        if ($argument && !$argument.includes('=')) return $argument;
+function cleanLimitText(text) {
+    return String(text).replace(/[受僅仅限定][区區]?/g, '');
+}
+
+function cleanLimitTitle(title) {
+    return String(title).replace(/[\[【(（]?[受僅仅限定][区區]?[\]】)）]?/g, '');
+}
+
+function extractMid(url) {
+    var match = String(url).match(/[?&](?:mid|vmid)=(\d+)/);
+    return match ? match[1] : null;
+}
+
+function fetchText(url, timeoutMs, callback) {
+    var done;
+    var timer;
+
+    if (typeof $httpClient !== 'undefined' && $httpClient.get) {
+        done = once(function(error, body) {
+            clearTimeout(timer);
+            callback(error, body);
+        });
+        timer = setTimeout(function() {
+            done(new Error('timeout'), null);
+        }, timeoutMs);
+
+        $httpClient.get(url, function(error, response, body) {
+            done(error, body);
+        });
+        return true;
     }
+
+    if (typeof $task !== 'undefined' && $task.fetch) {
+        done = once(function(error, body) {
+            clearTimeout(timer);
+            callback(error, body);
+        });
+        timer = setTimeout(function() {
+            done(new Error('timeout'), null);
+        }, timeoutMs);
+
+        $task.fetch(url).then(
+            function(response) {
+                done(null, response && response.body);
+            },
+            function(error) {
+                done(error, null);
+            }
+        );
+        return true;
+    }
+
+    return false;
+}
+
+function parseJson(body) {
+    try {
+        return JSON.parse(body);
+    } catch (error) {
+        console.log('BiliRoaming space_fix parse error: ' + error);
+        return null;
+    }
+}
+
+function readArg(key, def) {
+    var match;
+
+    if (typeof $argument === 'object' && $argument && hasOwn($argument, key)) {
+        return $argument[key];
+    }
+
+    if (typeof $argument === 'string') {
+        match = $argument.match(new RegExp(key + '=([^&]*)'));
+        if (match) return match[1];
+        if ($argument && $argument.indexOf('=') === -1) return $argument;
+    }
+
     return def;
+}
+
+function isEnabled(value) {
+    return value === true || value === 'true' || value === 'unlock';
+}
+
+function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function once(callback) {
+    var called = false;
+    return function(error, body) {
+        if (called) return;
+        called = true;
+        callback(error, body);
+    };
+}
+
+function finishWithBody(obj) {
+    $done({ body: JSON.stringify(obj) });
+}
+
+function finish() {
+    $done({});
 }
