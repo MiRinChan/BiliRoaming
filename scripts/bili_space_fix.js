@@ -309,8 +309,8 @@ function buildFakeAccInfo(mid, card, isV2) {
                 profession: {}
             },
             images: {
-                imgUrl: face || 'https://github.com/MiRinChan/BiliRoaming/releases/download/image/IMG_20260624_232433.png',
-                night_imgurl: face || 'https://github.com/MiRinChan/BiliRoaming/releases/download/image/IMG_20260624_232433.png',
+                imgUrl: face || 'https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/assets/space_fix/hero.webp',
+                night_imgurl: face || 'https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/assets/space_fix/hero.webp',
                 has_garb: true,
                 goods_available: true
             },
