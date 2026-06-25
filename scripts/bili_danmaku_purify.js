@@ -1,8 +1,11 @@
 /**
  * BiliRoaming - 弹幕净化
  *
- * 移除 DmSegMobileReply protobuf 响应中的 colorful_src 字段 (field 5),
- * 禁用大会员彩色弹幕的渐变渲染效果, 保留普通用户发送的单色弹幕。
+ * 若 DmSegMobileReply 包含 colorful_src (field 5, 大会员渐变色数据):
+ *   1. 移除 colorful_src 字段, 禁用渐变渲染
+ *   2. 将每个 DanmakuElem 的非白色颜色替换为目标色 (白色 #FFFFFF 或粉色 #FFAEC9)
+ *
+ * 若不含 colorful_src (普通段): 透传不修改, 避免误伤普通用户的单色弹幕。
  *
  * 拦截接口 (REST protobuf):
  *   - api.bilibili.com/x/v2/dm/list/seg.so   APP 端弹幕分段
@@ -11,20 +14,27 @@
  * 参数:
  *   弹幕 = select,"off","white","pink",tag=净化—弹幕
  *     off   - 不做修改，透传
- *     white - 启用净化
- *     pink  - 启用净化
+ *     white - 彩色弹幕 → #FFFFFF
+ *     pink  - 彩色弹幕 → #FFAEC9
  *
  * 适用于: Loon, Surge, Quantumult X
  * Update: 2026-06-25
  */
 
 // === 解析参数 ===
-var DANMAKU_ENABLED = readArg('弹幕', 'off') !== 'off';
+var DANMAKU_MODE = readArg('弹幕', 'off');
+
+var TARGET_COLOR;
+if (DANMAKU_MODE === 'white') {
+    TARGET_COLOR = 0xFFFFFF;
+} else if (DANMAKU_MODE === 'pink') {
+    TARGET_COLOR = 0xFFAEC9;
+}
 
 var url = $request.url;
 var body = $response.body;
 
-if (!DANMAKU_ENABLED || !body || !url) {
+if (!TARGET_COLOR || !body || !url) {
     $done({});
     return;
 }
@@ -35,13 +45,13 @@ if (!(url.includes('seg.so') && url.includes('/dm/'))) {
     return;
 }
 
-handleDanmakuPurify();
+handleDanmakuPurify(TARGET_COLOR);
 
 /**
  * 弹幕净化主入口
- * getResponseBytes → unwrap → removeColorfulSrc → rewrap → setResponseBytes
+ *   两趟处理: 先扫描有无 colorful_src (field 5), 有则移除 + 替换颜色
  */
-function handleDanmakuPurify() {
+function handleDanmakuPurify(targetColor) {
     try {
         var rawBytes = getResponseBytes();
         if (!rawBytes || rawBytes.length < 2) {
@@ -49,24 +59,27 @@ function handleDanmakuPurify() {
             return;
         }
 
-        // 检测是否有 colorful_src 的快速路径:
-        // seg.so 响应通常以 0x0A (field 1, elems) 开头,
-        // 如果只有 field 1 且无 field 5, 大概率无需修改
         var decompressed = unwrap(rawBytes);
         if (!decompressed || decompressed.length === 0) {
             $done({});
             return;
         }
 
-        // 移除 colorful_src (field 5) — 禁用渐变色效果
-        var modified = removeColorfulSrc(decompressed);
+        // 第一趟: 快速扫描, 检测 colorful_src (field 5)
+        var hasColorfulSrc = scanForColorfulSrc(decompressed);
 
-        if (modified === null) {
-            $done({});  // 无变化, 透传
+        if (!hasColorfulSrc) {
+            $done({});  // 无 colorful_src, 透传避免误伤
             return;
         }
 
-        // 重新打包
+        // 第二趟: 移除 colorful_src + 替换弹幕颜色
+        var modified = purifyReply(decompressed, targetColor);
+        if (modified === null) {
+            $done({});
+            return;
+        }
+
         var output = rewrap(rawBytes, modified);
         if (!output) {
             $done({});
@@ -76,33 +89,47 @@ function handleDanmakuPurify() {
         setResponseBytes(output);
 
     } catch (e) {
-        console.log('BiliRoaming danmaku purify: ' + e);
+        console.log('BiliRoaming danmaku purify error: ' + e);
         $done({});
     }
 }
 
 /**
- * 移除 DmSegMobileReply 中的 colorful_src 字段 (field 5, wire type 2)
+ * 第一趟: 快速扫描 DmSegMobileReply, 检测是否存在 colorful_src (field 5, wt 2)
  *
- * 逐 field 扫描 protobuf 字节流, 跳过 field 5 wt 2 (colorful_src),
- * 其余 field 原样拷贝。这是 DmSegMobileReply 顶层字段,
- * 不在嵌套消息内。
+ * @param {Uint8Array} buf
+ * @returns {boolean}
+ */
+function scanForColorfulSrc(buf) {
+    var off = 0;
+    while (off < buf.length) {
+        var tag = buf[off];
+        var fn = tag >> 3;
+        var wt = tag & 0x07;
+
+        if (fn === 5 && wt === 2) return true;
+
+        off = skipField(buf, off);
+    }
+    return false;
+}
+
+/**
+ * 第二趟: 净化 DmSegMobileReply
  *
- * DmSegMobileReply 结构:
- *   elems         = 1 (wt 2)  → 保留
- *   state         = 2 (wt 0)  → 保留
- *   ai_flag       = 3 (wt 2)  → 保留 (若存在)
- *   segment_rules = 4 (wt 2)  → 保留 (若存在)
- *   colorful_src  = 5 (wt 2)  → 移除
- *   context_src   = 6 (wt 2)  → 保留 (若存在)
+ * 对每个顶层 field:
+ *   - field 1 wt 2 (elems/DanmakuElem): 调用 rebuildElemWithColor 替换颜色
+ *   - field 5 wt 2 (colorful_src): 整段移除
+ *   - 其余: 原样拷贝
  *
  * @param {Uint8Array} buf - DmSegMobileReply protobuf 字节
- * @returns {Uint8Array|null} 修改后的字节, 无 colorful_src 返回 null
+ * @param {number} targetColor - 目标 RGB 颜色
+ * @returns {Uint8Array|null} 修改后的字节
  */
-function removeColorfulSrc(buf) {
+function purifyReply(buf, targetColor) {
     var off = 0;
     var outputParts = [];
-    var removedCount = 0;
+    var changedCount = 0;
     var lastCopyEnd = 0;
 
     while (off < buf.length) {
@@ -111,37 +138,57 @@ function removeColorfulSrc(buf) {
         var wt = tag & 0x07;
 
         if (fn === 5 && wt === 2) {
-            // colorful_src: 整段移除
+            // colorful_src: 移除
             if (lastCopyEnd < off) {
                 outputParts.push(buf.slice(lastCopyEnd, off));
             }
-            off++;  // 跳过 tag 字节
+            off++;
             var lenResult = readVarint(buf, off);
             off += lenResult[1] + Number(lenResult[0]);
             lastCopyEnd = off;
-            removedCount++;
+            changedCount++;
+
+        } else if (fn === 1 && wt === 2) {
+            // DanmakuElem 嵌套消息: tag 0x0A
+            off++;
+
+            var lenResult = readVarint(buf, off);
+            var elemLen = Number(lenResult[0]);
+            var lenVarintLen = lenResult[1];
+            off += lenVarintLen;
+
+            var elemStart = off - 1 - lenVarintLen;  // tag 字节位置
+            var elemBytes = buf.slice(off, off + elemLen);
+            off += elemLen;
+
+            // 尝试替换颜色
+            var newElemBytes = rebuildElemWithColor(elemBytes, targetColor);
+            if (newElemBytes !== null) {
+                // 颜色已修改
+                if (lastCopyEnd < elemStart) {
+                    outputParts.push(buf.slice(lastCopyEnd, elemStart));
+                }
+                var newLenVarint = encodeVarint(newElemBytes.length);
+                var newTagAndLen = new Uint8Array(1 + newLenVarint.length);
+                newTagAndLen[0] = 0x0A;  // field 1, wire type 2
+                newTagAndLen.set(newLenVarint, 1);
+                outputParts.push(newTagAndLen);
+                outputParts.push(newElemBytes);
+                lastCopyEnd = off;
+                changedCount++;
+            }
         } else {
             off = skipField(buf, off);
         }
     }
 
-    if (removedCount === 0) return null;
+    if (changedCount === 0) return null;
 
-    // 拷贝剩余尾部
     if (lastCopyEnd < buf.length) {
         outputParts.push(buf.slice(lastCopyEnd));
     }
 
-    // 拼接所有保留片段
-    if (outputParts.length === 0) {
-        // 极端情况: 仅有 colorful_src 没有 elems (不可能)
-        return new Uint8Array(0);
-    }
-
-    if (outputParts.length === 1) {
-        return outputParts[0];
-    }
-
+    // 拼接所有片段
     var totalLen = 0;
     for (var i = 0; i < outputParts.length; i++) totalLen += outputParts[i].length;
     var result = new Uint8Array(totalLen);
@@ -151,37 +198,106 @@ function removeColorfulSrc(buf) {
         pos += outputParts[i].length;
     }
 
-    console.log('BiliRoaming danmaku purify: removed ' + removedCount + ' colorful_src field(s)');
+    console.log('BiliRoaming danmaku purify: modified ' + changedCount + ' elems, removed colorful_src');
+    return result;
+}
+
+/**
+ * 重建单个 DanmakuElem, 将非白色 color field (fn=5, wt=0) 替换为目标色
+ *
+ * 逐 field 扫描: color field 替换为目标 varint, 其余字段原样拷贝。
+ * 已为目标色的弹幕跳过不修改。
+ *
+ * @param {Uint8Array} elemBytes - DanmakuElem protobuf 字节
+ * @param {number} targetColor
+ * @returns {Uint8Array|null} 修改后的 elem 字节, 无变化返回 null
+ */
+function rebuildElemWithColor(elemBytes, targetColor) {
+    var off = 0;
+    var newParts = [];
+    var changed = false;
+    var newTotalLen = 0;
+
+    while (off < elemBytes.length) {
+        var tag = elemBytes[off];
+        var fn = tag >> 3;
+        var wt = tag & 0x07;
+
+        if (fn === 5 && wt === 0) {
+            // color field (varint)
+            off++;
+            var colorResult = readVarint(elemBytes, off);
+            var oldColor = Number(colorResult[0]);
+            var oldVarintLen = colorResult[1];
+            off += oldVarintLen;
+
+            if (oldColor !== 0xFFFFFF && oldColor !== targetColor) {
+                // 替换为目标色
+                var newVarint = encodeVarint(targetColor);
+                var newField = new Uint8Array(1 + newVarint.length);
+                newField[0] = 0x28;  // field 5, wire type 0
+                newField.set(newVarint, 1);
+                newParts.push(newField);
+                newTotalLen += newField.length;
+                changed = true;
+            } else {
+                // 白色或已是目标色, 原样拷贝
+                var orig = new Uint8Array(1 + oldVarintLen);
+                orig[0] = tag;
+                orig.set(elemBytes.slice(off - oldVarintLen, off), 1);
+                newParts.push(orig);
+                newTotalLen += orig.length;
+            }
+        } else {
+            // 非 color field, 整段拷贝
+            var fieldStart = off;
+            off = skipField(elemBytes, off);
+            newParts.push(elemBytes.slice(fieldStart, off));
+            newTotalLen += (off - fieldStart);
+        }
+    }
+
+    if (!changed) return null;
+
+    var result = new Uint8Array(newTotalLen);
+    var pos = 0;
+    for (var i = 0; i < newParts.length; i++) {
+        result.set(newParts[i], pos);
+        pos += newParts[i].length;
+    }
+    return result;
+}
+
+/**
+ * varint 编码: uint32 → Uint8Array
+ */
+function encodeVarint(v) {
+    var parts = [];
+    while (v > 0x7F) {
+        parts.push((v & 0x7F) | 0x80);
+        v >>>= 7;
+    }
+    parts.push(v & 0x7F);
+    var result = new Uint8Array(parts.length);
+    for (var i = 0; i < parts.length; i++) {
+        result[i] = parts[i];
+    }
     return result;
 }
 
 // ==================== IO 层 (Loon 优先, 兼容 Surge) ====================
 
-/**
- * 获取响应原始字节
- * Loon:  $response.body 为 base64 字符串
- * Surge: $response.bodyBytes 为 Uint8Array
- */
 function getResponseBytes() {
-    // Loon 优先: base64 字符串 body
     if (typeof $response.body === 'string' && $response.body.length > 0) {
         var bytes = decodeBase64($response.body);
         if (bytes) return bytes;
     }
-
-    // Surge: bodyBytes
     if (typeof $response.bodyBytes !== 'undefined' && $response.bodyBytes) {
         return $response.bodyBytes;
     }
-
     return null;
 }
 
-/**
- * 设置响应原始字节
- * Loon:  $done({ body: base64str })
- * Surge: $done({ bodyBytes: Uint8Array })
- */
 function setResponseBytes(bytes) {
     var b64 = encodeBase64(bytes);
     $done({ body: b64 });
@@ -189,39 +305,23 @@ function setResponseBytes(bytes) {
 
 // ==================== 解包 / 打包 (REST protobuf, 无 gRPC frame) ====================
 
-/**
- * 解包到 protobuf
- * REST seg.so 响应通常为裸 protobuf 字节。
- * 少数情况下可能有额外 gzip 压缩 (0x1F 0x8B 魔数)。
- */
 function unwrap(rawBytes) {
-    // 检测 gzip 魔数: 额外解压一层
     if (rawBytes.length >= 2 && rawBytes[0] === 0x1F && rawBytes[1] === 0x8B) {
         var decompressed = ungzip(rawBytes);
         if (decompressed) return decompressed;
     }
-
-    // 已是裸 protobuf
     return rawBytes;
 }
 
-/**
- * 反向打包: protobuf → (gzip, 如原始有)
- *
- * 若原始响应包含 gzip 魔数则 re-compress;
- * 否则直接返回 protobuf 字节。
- * REST 接口无 gRPC frame。
- */
 function rewrap(originalRaw, protobufBytes) {
     if (originalRaw.length >= 2 && originalRaw[0] === 0x1F && originalRaw[1] === 0x8B) {
         var compressed = gzip(protobufBytes);
         if (compressed) return compressed;
-        // gzip 失败 → 回退到裸字节
     }
     return protobufBytes;
 }
 
-// ==================== Base64 (优先使用 $utils, 回退手动) ====================
+// ==================== Base64 ====================
 
 function decodeBase64(str) {
     if (typeof $utils !== 'undefined' && typeof $utils.base64ToBytes === 'function') {
@@ -243,7 +343,7 @@ function encodeBase64(bytes) {
     return manualBytesToBase64(bytes);
 }
 
-// ==================== gzip (统一走 $utils) ====================
+// ==================== gzip ====================
 
 function ungzip(data) {
     if (typeof $utils !== 'undefined' && typeof $utils.ungzip === 'function') {
@@ -267,12 +367,6 @@ function gzip(data) {
 
 // ==================== Protobuf 辅助 ====================
 
-/**
- * 读取 protobuf varint
- * @param {Uint8Array} buf
- * @param {number} offset
- * @returns {[number, number]} [value, bytesRead]
- */
 function readVarint(buf, offset) {
     var result = 0;
     var shift = 0;
@@ -287,7 +381,6 @@ function readVarint(buf, offset) {
     return [result, read];
 }
 
-/** 跳过一个 protobuf field (tag 未消费) */
 function skipField(buf, off) {
     if (off >= buf.length) return off;
     var tag = buf[off];
@@ -311,7 +404,7 @@ function skipFieldPayload(buf, off, wt) {
     return off;
 }
 
-// ==================== 手动 Base64 (无 $utils 时的回退) ====================
+// ==================== 手动 Base64 ====================
 
 var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -351,15 +444,11 @@ function manualBytesToBase64(bytes) {
 
 // ==================== 参数解析 ====================
 
-/**
- * 读取插件参数（兼容 Loon $argument 对象 & Surge $argument 字符串）
- */
 function readArg(key, def) {
     if (typeof $argument === 'object' && $argument && key in $argument) return $argument[key];
     if (typeof $argument === 'string') {
         var m = $argument.match(new RegExp(key + '=([^&]*)'));
         if (m) return m[1];
-        // Surge [{key}] template passes raw value without key= prefix
         if ($argument && !$argument.includes('=')) return $argument;
     }
     return def;
