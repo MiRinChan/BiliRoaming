@@ -455,9 +455,18 @@ function setResponseBytes(bytes) {
 // ==================== 解包 / 打包 ====================
 
 /**
- * 自动检测 gRPC frame + gzip, 解包到 protobuf
+ * 自动检测 gRPC frame + gzip, 解包到 protobuf。
+ *
+ * 同时记录原始响应的格式, 供 rewrap 使用:
+ *   _hadGrpcFrame: 原始是否有 gRPC frame
+ *   _hadGzip: 原始是否有 gzip 压缩 (在 frame 之后)
  */
+var _hadGrpcFrame = false;
+var _hadGzip = false;
+
 function unwrap(rawBytes) {
+    _hadGrpcFrame = false;
+    _hadGzip = false;
     var buf = rawBytes;
 
     // 1. gRPC frame: flag (0x00/0x01) + 4B BE length
@@ -466,11 +475,13 @@ function unwrap(rawBytes) {
         var actualAvail = buf.length - 5;
         if (claimedLen > 0 && claimedLen <= actualAvail + 100) {
             buf = buf.slice(5, 5 + Math.min(claimedLen, actualAvail));
+            _hadGrpcFrame = true;
         }
     }
 
     // 2. gzip
     if (buf.length >= 2 && buf[0] === 0x1F && buf[1] === 0x8B) {
+        _hadGzip = true;
         var decompressed = ungzip(buf);
         if (decompressed) return decompressed;
     }
@@ -479,20 +490,28 @@ function unwrap(rawBytes) {
 }
 
 /**
- * protobuf → gzip → gRPC frame (如原始有)
+ * protobuf → (gzip) → (gRPC frame), 根据 unwrap 记录的格式反向打包
+ *
+ * 对于 gRPC 响应: 总是 gzip 压缩后加 gRPC frame (与 bili_purify.js 一致)
+ * 对于 REST 响应: 仅在原始有 gzip 时才压缩
  */
 function rewrap(originalRaw, protobufBytes) {
     var data = protobufBytes;
 
-    // gzip (如原始有)
-    if (originalRaw.length >= 2 && originalRaw[0] === 0x1F && originalRaw[1] === 0x8B) {
+    // gzip 压缩: 若原始有 gzip 或原始有 gRPC frame (gRPC 响应总是压缩的)
+    if (_hadGzip || _hadGrpcFrame) {
         var compressed = gzip(protobufBytes);
-        if (compressed) data = compressed;
+        if (compressed) {
+            data = compressed;
+        } else if (_hadGrpcFrame) {
+            // gRPC 响应必须压缩, 失败则返回 null 让调用者透传
+            return null;
+        }
     }
 
-    // gRPC frame (如原始有)
-    if (originalRaw.length >= 5 && (originalRaw[0] === 0x00 || originalRaw[0] === 0x01)) {
-        var flag = originalRaw[0];
+    // gRPC frame
+    if (_hadGrpcFrame) {
+        var flag = 0x01;  // 默认 compressed flag
         var frame = new Uint8Array(5 + data.length);
         frame[0] = flag;
         frame[1] = (data.length >>> 24) & 0xFF;
