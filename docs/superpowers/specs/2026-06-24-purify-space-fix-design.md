@@ -1,10 +1,10 @@
-# BiliRoaming MITM Purify & Space Fix
+# CarlyLeeRoaming MITM Purify & Space Fix
 
 Date: 2026-06-24
 
 ## Summary
 
-Add two new MITM scripts to the BiliRoaming plugin:
+Add two new MITM scripts to the CarlyLeeRoaming plugin:
 - `bili_purify.js` — Remove ads, promotions, and noise from Bilibili feeds
 - `bili_space_fix.js` — Restore blocked/area-limited user space content
 
@@ -16,7 +16,7 @@ scripts/
 ├── bili_long_link.js     (existing, unchanged)
 ├── bili_purify.js        (NEW)
 └── bili_space_fix.js     (NEW)
-BiliRoaming.plugin        (UPDATE: add new Script/MITM/Argument entries)
+CarlyLeeRoaming.plugin        (UPDATE: add new Script/MITM/Argument entries)
 ```
 
 ## bili_purify.js
@@ -69,7 +69,7 @@ space = switch,false,tag=空间修复,desc=修复被限制的用户空间
 ```
 
 ### Script (8 new rules for purify, 3 for space)
-See BiliRoaming.plugin for exact rules.
+See CarlyLeeRoaming.plugin for exact rules.
 
 ## Non-Goals
 - CDN/UPOS replacement (separate feature)

@@ -1,5 +1,5 @@
 /**
- * BiliRoaming - 修复用户空间
+ * CarlyLeeRoaming - 修复用户空间
  *
  * 修复因区域限制/账号状态被隐藏或限制的用户空间数据
  *
@@ -45,7 +45,7 @@ let obj;
 try {
     obj = JSON.parse(body);
 } catch (e) {
-    console.log(`BiliRoaming space_fix parse error: ${e}`);
+    console.log(`CarlyLeeRoaming space_fix parse error: ${e}`);
     $done({});
     return;
 }
@@ -154,16 +154,16 @@ function fixAccInfo(obj, url, done) {
                         if (cardResp.code === 0 && cardResp.card) {
                             obj = buildFakeAccInfo(mid, cardResp.card, isV2);
                             restored = true;
-                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
+                            console.log(`CarlyLeeRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
-                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
+                        console.log(`CarlyLeeRoaming space_fix card parse error: ${e}`);
                     }
                 }
                 // getCardByMid 也失败时，仍构造最小响应避免客户端白屏
                 if (!restored) {
                     obj = buildFakeAccInfo(mid, null, isV2);
-                    console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
+                    console.log(`CarlyLeeRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
                 }
                 done(obj);
             });
@@ -180,19 +180,19 @@ function fixAccInfo(obj, url, done) {
                         if (cardResp.code === 0 && cardResp.card) {
                             obj = buildFakeAccInfo(mid, cardResp.card, isV2);
                             restored = true;
-                            console.log(`BiliRoaming space_fix: restored deactivated user ${mid}`);
+                            console.log(`CarlyLeeRoaming space_fix: restored deactivated user ${mid}`);
                         }
                     } catch (e) {
-                        console.log(`BiliRoaming space_fix card parse error: ${e}`);
+                        console.log(`CarlyLeeRoaming space_fix card parse error: ${e}`);
                     }
                     if (!restored) {
                         obj = buildFakeAccInfo(mid, null, isV2);
-                        console.log(`BiliRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
+                        console.log(`CarlyLeeRoaming space_fix: getCardByMid failed, fallback for ${mid}`);
                     }
                     done(obj);
                 },
                 (err) => {
-                    console.log(`BiliRoaming space_fix fetch error: ${err}`);
+                    console.log(`CarlyLeeRoaming space_fix fetch error: ${err}`);
                     obj = buildFakeAccInfo(mid, null, isV2);
                     done(obj);
                 }
@@ -201,7 +201,7 @@ function fixAccInfo(obj, url, done) {
         }
 
         // 无 HTTP 客户端可用 (如 Node.js 测试环境): 直接透传
-        console.log(`BiliRoaming space_fix: no HTTP client available for -404 fix, mid=${mid}`);
+        console.log(`CarlyLeeRoaming space_fix: no HTTP client available for -404 fix, mid=${mid}`);
     }
 
     // 其他错误码: 透传
@@ -257,14 +257,14 @@ function buildFakeAccInfo(mid, card, isV2) {
                 birthday: '',
                 place: '',
                 // align: description 标记
-                description: '该页面由哔哩漫游修复',
+                description: '该页面由查理理漫游修复',
                 article: 0,
                 attentions: [],
                 fans: card.fans || 0,
                 friend: card.friend || 0,
                 attention: card.attention || 0,
                 // align: sign 标记
-                sign: '【该页面由哔哩漫游修复】' + (card.sign || ''),
+                sign: '【该页面由查理理漫游修复】' + (card.sign || ''),
                 level_info: {
                     current_level: levelInfo.current_level || 0,
                     current_min: levelInfo.current_min || 0,
@@ -301,7 +301,7 @@ function buildFakeAccInfo(mid, card, isV2) {
                 silence: 0,
                 end_time: 0,
                 silence_url: '',
-                likes: { like_num: 0, skr_tip: '该页面由哔哩漫游修复' },
+                likes: { like_num: 0, skr_tip: '该页面由查理理漫游修复' },
                 pr_info: {},
                 relation: { status: 1 },
                 is_deleted: 0,
@@ -309,8 +309,8 @@ function buildFakeAccInfo(mid, card, isV2) {
                 profession: {}
             },
             images: {
-                imgUrl: face || 'https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/assets/space_fix/hero.webp',
-                night_imgurl: face || 'https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/assets/space_fix/hero.webp',
+                imgUrl: face || 'https://raw.githubusercontent.com/MiRinChan/CarlyLeeRoaming/master/assets/space_fix/hero.webp',
+                night_imgurl: face || 'https://raw.githubusercontent.com/MiRinChan/CarlyLeeRoaming/master/assets/space_fix/hero.webp',
                 has_garb: true,
                 goods_available: true
             },

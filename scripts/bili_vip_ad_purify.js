@@ -1,5 +1,5 @@
 /**
- * BiliRoaming - 大会员广告净化
+ * CarlyLeeRoaming - 大会员广告净化
  *
  * 删除 B站响应中广告/推广容器里的大会员推广内容。只处理广告语境中的
  * 大会员内容，避免误删用户资料里的正常 vip 状态字段。
@@ -33,7 +33,7 @@
 
         finish();
     } catch (error) {
-        console.log('BiliRoaming vip_ad_purify error: ' + error);
+        console.log('CarlyLeeRoaming vip_ad_purify error: ' + error);
         finish();
     }
 })();
@@ -207,7 +207,7 @@ function parseJson(body) {
     try {
         return JSON.parse(body);
     } catch (error) {
-        console.log('BiliRoaming vip_ad_purify parse error: ' + error);
+        console.log('CarlyLeeRoaming vip_ad_purify parse error: ' + error);
         return null;
     }
 }

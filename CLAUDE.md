@@ -4,17 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-BiliRoaming is a collection of JavaScript HTTP response rewrite scripts for network proxy tools (Loon, Surge, Quantumult X, Stash). Scripts intercept Bilibili API responses and modify JSON fields in-flight to unlock regional restrictions, remove ads/promotions, clean up share links, and fix user space pages affected by region locks or account status.
+CarlyLeeRoaming is a collection of JavaScript HTTP response rewrite scripts for network proxy tools (Loon, Surge, Quantumult X, Stash). Scripts intercept Bilibili API responses and modify JSON fields in-flight to unlock regional restrictions, remove ads/promotions, clean up share links, and fix user space pages affected by region locks or account status.
 
 ## Architecture
 
 ```
-BiliRoaming.plugin      # Plugin manifest: proxy rules, MITM hostnames, script URL mappings, user-facing arguments
+CarlyLeeRoaming.plugin      # Plugin manifest: proxy rules, MITM hostnames, script URL mappings, user-facing arguments
 scripts/
-  bili_area_limit.js    # Unlock bangumi/anime regional restrictions
   bili_long_link.js     # Replace b23.tv short links with clean av/BV URLs
-  bili_purify.js        # Remove ads, promotions, banners from multiple Bilibili surfaces
   bili_space_fix.js     # Fix restricted/deactivated user space pages (v2 and legacy APIs)
+  bili_vip_ad_purify.js # Remove VIP membership ads from Bilibili surfaces
 ```
 
 ### How scripts execute
@@ -31,11 +30,7 @@ Each script runs as an HTTP response handler inside the proxy tool's JavaScript 
 
 ### Script-specific details
 
-**`bili_area_limit.js`** — The most complex script after the space fix. Normal flow (`code === 0`): patches `area_limit`, `allow_dm`, `allow_download`, `allow_comment`, `allow_demand` on nested objects; fixes episode `status: 13 → 2` (VIP-locked → unlocked); removes `limit`/`dialog` UI elements. For region-locked content (`code === -404`): makes an outbound HTTP request to the international (bstar) API endpoint (`intl/gateway/v2/ogv/view/app/season` or `intl/gateway/v2/ogv/playurl`), then reconstructs the response with `rebuildSeasonFromIntl()` / `rebuildPlayurlFromIntl()`. Normalizes field name differences between CN and international API responses. Falls back to pass-through on failure. Walks `episodes[]`, `seasons[]`, `modules[]`, `prevueSection[]`, `sections[]`, `dash`, `durl[]` trees.
-
 **`bili_long_link.js`** — Intercepts the POST share-click API. In `av` mode, extracts `oid` from the request body. In `bv` mode, attempts direct extraction from the short path, falling back to an HTTP HEAD redirect-follow with a 3-second timeout. Strips Bilibili tracking parameters from the final URL.
-
-**`bili_purify.js`** — Modular purifier with per-surface enablement (`feed`, `search`, `detail`, `dynamic`, `live`, `comment`). Ad detection uses `isAdItem()` which checks `is_ad` truthy AND matches `card_goto`/`card_type`/`goto` fields against `"ad"`, `"cm"`, `"cm_v2"` (following the Xposed PegasusHook pattern — Bilibili's newer APIs use `card_goto: "cm"` for promoted content rather than `is_ad: true`). Search also filters `has_cm`/`has_special` flagged items. Filtering strategies vary by surface: removes ad/banner/operation cards, promoted search results, clears ad configs (`cm_config`, `cmds`), cleans dynamic card tags (同城/校园), and strips comment banners/guides.
 
 **`bili_space_fix.js`** — The most complex script. Normal flow (`code === 0`): patches `area_limit` and `status: -1 → 1` on user cards, space images, video lists, and feed items. For deactivated accounts (`code === -404`): makes an outbound HTTP request to `account.bilibili.com/api/member/getCardByMid` to fetch residual user data, then constructs a synthetic `buildFakeAccInfo()` response with a full BiliSpace v2 schema so the client doesn't show a blank/error page. Falls back to a minimal synthetic response if the card fetch also fails.
 
@@ -49,7 +44,7 @@ Each script runs as an HTTP response handler inside the proxy tool's JavaScript 
 
 ## Plugin configuration
 
-`BiliRoaming.plugin` uses the Loon/Surge plugin format:
+`CarlyLeeRoaming.plugin` uses the Loon/Surge plugin format:
 - `[Rule]` — DOMAIN-SUFFIX rules to route Bilibili traffic through the proxy
 - `[Script]` — Maps URL regex patterns to script files with tags and arguments
 - `[MITM]` — Hostnames requiring MITM decryption
@@ -65,7 +60,7 @@ This project has no build system, package manager, linter, or test suite. Script
 
 To test a script change:
 1. Host the modified script at a reachable URL (or use a local file server)
-2. Point the `script-path` in `BiliRoaming.plugin` to that URL
+2. Point the `script-path` in `CarlyLeeRoaming.plugin` to that URL
 3. Load the plugin in Loon/Surge/Quantumult X
 4. Trigger the relevant Bilibili API call and inspect the modified response
 

@@ -5,11 +5,11 @@
 Logo来自[哔哩哔哩漫游娘](https://www.weibo.com/p/230418139a6f1100102vlj6)
 
 
-# 哔哩漫游
+# 查理理漫游
 
 ~~解除B站客户端番剧区域限制的~~(TODO)MITM脚本，并且提供其他小功能
 
-# BiliRoaming
+# CarlyLeeRoaming
 
 An MITM script that ~~unblocks bangumi area limit~~(TODO) of BILIBILI, and miscellaneous features
 
@@ -23,7 +23,7 @@ An MITM script that ~~unblocks bangumi area limit~~(TODO) of BILIBILI, and misce
 # 使用方法
 
 ```
-https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/BiliRoaming.plugin
+https://raw.githubusercontent.com/MiRinChan/CarlyLeeRoaming/master/CarlyLeeRoaming.plugin
 ```
 
 # 特别鸣谢 / Acknowledgements

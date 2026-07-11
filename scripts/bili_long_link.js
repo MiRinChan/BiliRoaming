@@ -1,5 +1,5 @@
 /**
- * BiliRoaming - 链接净化（替换 b23.tv 短链接）
+ * CarlyLeeRoaming - 链接净化（替换 b23.tv 短链接）
  *
  * 拦截 B站分享 API，根据设置将 b23.tv 短链接替换为指定格式
  *
@@ -19,7 +19,7 @@
 // Loon: $argument 是对象 { mode: "av" }；Surge: $argument 是字符串 "mode=av"
 const MODE = readArg('mode', 'short'); // short | av | bv
 if (!['short', 'av', 'bv'].includes(MODE)) {
-    console.log(`BiliRoaming long_link invalid arg: ${MODE}`);
+    console.log(`CarlyLeeRoaming long_link invalid arg: ${MODE}`);
     $done({});
     return;
 }
@@ -110,7 +110,7 @@ try {
     $done({ body: JSON.stringify(obj) });
 
 } catch (e) {
-    console.log(`BiliRoaming long_link error: ${e}`);
+    console.log(`CarlyLeeRoaming long_link error: ${e}`);
     $done({});
 }
 
@@ -180,7 +180,7 @@ function resolveRedirect(shortPath, callback) {
  * 去除 URL 中的追踪参数
  * 参照 Xposed 模块 ShareHook.transformUrl() — 使用允许清单而非屏蔽清单:
  * 只保留 p (分页) 和 t (时间戳), start_progress (毫秒) 转换为 t (秒)
- * 最后附加 unique_k=2333 作为哔哩漫游处理标记
+ * 最后附加 unique_k=2333 作为查理理漫游处理标记
  */
 function stripTracking(url) {
     if (!url || typeof url !== 'string') return url;

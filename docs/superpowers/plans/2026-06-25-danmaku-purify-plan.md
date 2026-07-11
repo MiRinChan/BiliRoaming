@@ -35,7 +35,7 @@ Write `scripts/bili_danmaku_purify.js`:
 
 ```javascript
 /**
- * BiliRoaming - 弹幕净化
+ * CarlyLeeRoaming - 弹幕净化
  *
  * 将 DmSegMobile gRPC 响应中大会员彩色弹幕的颜色替换为指定颜色（白色或粉色）。
  *
@@ -128,7 +128,7 @@ function handleDanmakuPurify(targetColor) {
         setResponseBytes(output);
 
     } catch (e) {
-        console.log('BiliRoaming danmaku purify error: ' + e);
+        console.log('CarlyLeeRoaming danmaku purify error: ' + e);
         $done({});
     }
 }
@@ -232,7 +232,7 @@ function modifyDanmakuColor(buf, targetColor) {
         pos += outputParts[i].length;
     }
 
-    console.log('BiliRoaming danmaku purify: changed ' + changedCount + ' danmaku colors');
+    console.log('CarlyLeeRoaming danmaku purify: changed ' + changedCount + ' danmaku colors');
     return result;
 }
 
@@ -546,10 +546,10 @@ wc -l scripts/bili_danmaku_purify.js
 
 Expect approximately 370 lines.
 
-### Task 2: Update `BiliRoaming.plugin`
+### Task 2: Update `CarlyLeeRoaming.plugin`
 
 **Files:**
-- Modify: `BiliRoaming.plugin`
+- Modify: `CarlyLeeRoaming.plugin`
 
 **Interfaces:**
 - Consumes: `弹幕` argument key (defined in this task)
@@ -557,7 +557,7 @@ Expect approximately 370 lines.
 
 - [ ] **Step 1: Add the 弹幕 argument entry**
 
-In `BiliRoaming.plugin`, add after the existing 净化 arguments (after line 36 `评论@提及`):
+In `CarlyLeeRoaming.plugin`, add after the existing 净化 arguments (after line 36 `评论@提及`):
 
 ```
 弹幕 = select,"off","white","pink",tag=净化—弹幕,desc=把大会员彩色弹幕换成指定颜色
@@ -565,16 +565,16 @@ In `BiliRoaming.plugin`, add after the existing 净化 arguments (after line 36 
 
 - [ ] **Step 2: Add the DmSegMobile script entry**
 
-In `BiliRoaming.plugin`, add after the existing purify gRPC entry (after line 55):
+In `CarlyLeeRoaming.plugin`, add after the existing purify gRPC entry (after line 55):
 
 ```
-http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/BiliRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuPurify, argument=[{弹幕}]
+http-response ^https?:\/\/grpc\.biliapi\.net\/bilibili\.community\.service\.dm\.v1\.DM\/DmSegMobile script-path=https://raw.githubusercontent.com/MiRinChan/CarlyLeeRoaming/master/scripts/bili_danmaku_purify.js, requires-body=true, tag=DanmakuPurify, argument=[{弹幕}]
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add scripts/bili_danmaku_purify.js BiliRoaming.plugin
+git add scripts/bili_danmaku_purify.js CarlyLeeRoaming.plugin
 git commit -m "feat: add danmaku color purify script
 
 Replace premium colored danmaku with white (#FFFFFF) or pink (#FFAEC9) 
