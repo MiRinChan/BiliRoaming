@@ -40,7 +40,7 @@ Each script runs as an HTTP response handler inside the proxy tool's JavaScript 
 - **Fail-open**: Errors always result in `$done({})` — the original response passes through unmodified.
 - **Compatibility shims**: `readArg()` handles both object and string `$argument`; `$httpClient` vs `$task.fetch` branching handles Surge/Loon vs Quantumult X.
 - **URL matching via `String.includes()`**: Simple substring checks on the request URL path, not regex.
-- **Argument format**: `argument=[{area}]` in the plugin config — Surge passes a raw string (e.g., `"true"`), Loon passes a parsed object (e.g., `{area: true}`).
+- **Argument format**: Arguments in the plugin config use `[{key}]` template syntax — Surge passes a raw string (e.g., `"true"`), Loon passes a parsed object (e.g., `{space: true}`).
 
 ## Plugin configuration
 
